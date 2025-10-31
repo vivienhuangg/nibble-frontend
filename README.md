@@ -1,38 +1,13 @@
 # Nibble Frontend
 
-## User Journey (Assignment 2)
+Visual Design Study: [https://docs.google.com/presentation/d/1m3s5Uy1LVZKXgfObPIyMWVeZDDuP2tOky7HccuWHDUM/edit?usp=sharing](https://docs.google.com/presentation/d/1m3s5Uy1LVZKXgfObPIyMWVeZDDuP2tOky7HccuWHDUM/edit?usp=sharing)
 
-**Trigger**
-It's a Sunday afternoon, and Vivien and her roommates want to bring dessert to a potluck. They remember that their friend Saph had made _Matcha Brownies_ before and saved the recipe in their shared cookbook. Rather than searching through screenshots or old texts, they open the app.
+Screen Recording: [https://youtu.be/UlPPQgCI2RM](https://youtu.be/UlPPQgCI2RM)
 
----
+## User Journey:
 
-**Step 1: Browsing the Cookbook**
+A user wants to start a shared cookbook with her roommates and improve a quick recipe using AI. She opens Nibble on her laptop, which loads into her Cookbooks view. In Nibble, every recipe must live inside a cookbook, so she first creates a new cookbook called **“Apartment Dinners.”** From this cookbook page, she clicks **“New Recipe,”** which opens a Notion-like editor where she can type the recipe directly. She enters the title **“Chicken Noodle Soup,”** leaves the description blank for now, and adds a minimal set of **Ingredients** (e.g., “1 cup broth,” “1 rotisserie chicken,” “1 cup mirepoix”) and a simple **Instruction** (“Throw all ingredients into a Dutch oven and cook for as long as you’d like.”). She also adds a **Note** (“The longer the better—more flavor gets extracted.”) and clicks **“Create.”** Nibble saves the recipe and returns her to the cookbook, showing the recipe with ingredients on the left and instructions on the right.
 
-Vivien navigates to the **Cookbook View**.. In the sidebar, she sees all her cookbooks — _Family Recipes_, _Cocktails!!!_, and _WIP…_. She clicks on _Roommate Meals_, which opens up a grid of recipe cards. Alongside their _Steak_ dinner recipe, she spots _Matcha Brownies_, tagged as _dessert, matcha, potluck_. The tags make it easy to find the right recipe for the occasion.
+Feeling the recipe is too basic, she uses **“Improve with AI.”** She types a prompt like “Make this more complex and flavorful,” and after a short processing state the app presents a **diff view** of suggested edits. **Yellow** highlights indicate **modified** text, and **green** highlights indicate **newly added** steps or ingredients; an adjacent notes panel summarizes the LM’s reasoning. Satisfied, she clicks **“Accept & Apply,”** and Nibble updates the recipe with the enhanced description, steps, and ingredients.
 
----
-
-**Step 2: Opening the Recipe**
-Clicking on the card brings Vivien into the **Recipe View**. The recipe title _Matcha Brownies_ is at the top, with the header showing it belongs to _Roommate Meals_. The version number reads **3.7**, authored by _Saph_ on _8/28/2025_, and the recipe is forked twice. To the right, she sees it’s currently shared with their apartment group _APT 511_.
-Scrolling down, Vivien notices a previous comment she made on the ingredient _“1 tsp vanilla extract”_ — _“Vanilla Bourbon Paste is better!!!”_ (9/28/2025). There’s also a question annotation from their friend Bob on one of the steps. These embedded notes remind the group of personal tweaks and open discussions, instead of cluttered chats.
-
----
-
-**Step 3: Exploring the Version History**
-
-Before baking, Vivien clicks into the **Version View**. On the right-hand panel, she sees _Version 3.7 — “Gluten-Free version!”_ created earlier that day. The highlights in the ingredient and recipe sections make the changes clear compared to the previous version — a different type of flour, slight adjustments in baking time. Now Vivien can decide whether to use the gluten-free fork or stick with the standard recipe.
-
----
-
-**Step 4: Cooking and Contributing**
-The roommates follow the gluten-free version for the potluck. After baking, Vivien clicks “+ New Version” to record their outcome. She tags it as _potluck hit_ and notes, _“Cut sugar by 20%, still delicious.”_ This becomes Version 3.8, instantly visible in the _Roommate Meals_ cookbook for everyone in APT 511.
-
----
-
-**Outcome**
-Instead of repeating old mistakes or losing track of tweaks, Vivien and her roommates have a shared, evolving record of their favorite recipes. Annotations capture tips and questions, version history highlights adaptations, and cookbooks organize everything by context. What once was a messy thread of screenshots is now a collaborative cooking journal that makes group meals smoother and more fun.
-
-## Demo link:
-
-[https://youtu.be/X0UDW5GLaN0](https://youtu.be/X0UDW5GLaN0)
+Next, she wants her roommate to see the recipe immediately, so she opens the cookbook’s **Share** dialog, adds her roommate’s user (who already has an account), and confirms. After returning to the sidebar and refreshing, the cookbook appears under **Shared** for the roommate. The roommate can now open **Apartment Dinners → Chicken Noodle Soup** and view the finalized ingredients and instructions without needing edit access. The app confirms that sharing is active. The user feels **relief**, since she quickly created, improved, and shared a usable recipe without back-and-forth messaging.
