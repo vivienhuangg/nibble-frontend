@@ -1,80 +1,17 @@
 <template>
-  <div class="annotation-container">
-    <!-- Annotation Button -->
-    <button
-      v-if="!showAnnotationForm"
-      @click="showAnnotationForm = true"
-      class="annotation-btn"
-      :class="{ 'has-annotations': annotations.length > 0 }"
-    >
-      <span class="annotation-icon">💬</span>
-      <span v-if="annotations.length > 0" class="annotation-count">
-        {{ annotations.length }}
-      </span>
-    </button>
+  <div class="annotation-container" :style="containerStyle" @click.stop>
+    <!-- Header with comment count and add button -->
 
-    <!-- Annotation Form -->
-    <div v-if="showAnnotationForm" class="annotation-form">
-      <div class="annotation-header">
-        <h4>Add Comment</h4>
-        <button @click="closeForm" class="close-btn">×</button>
-      </div>
-
-      <form @submit.prevent="submitAnnotation">
-        <textarea
-          v-model="annotationText"
-          placeholder="Add your comment..."
-          rows="3"
-          class="annotation-textarea"
-        ></textarea>
-
-        <div class="annotation-actions">
-          <button type="button" @click="closeForm" class="cancel-btn">Cancel</button>
-          <button type="submit" :disabled="!annotationText.trim() || isLoading" class="submit-btn">
-            {{ isLoading ? 'Adding...' : 'Add Comment' }}
-          </button>
-        </div>
-      </form>
-    </div>
-
-    <!-- Existing Annotations -->
+    <!-- Comments List -->
     <div v-if="annotations.length > 0" class="annotations-list">
-      <div
-        v-for="annotation in sortedAnnotations"
-        :key="annotation._id"
-        class="annotation-item"
-        :class="{ resolved: annotation.resolved }"
-      >
+      <div v-for="annotation in sortedAnnotations" :key="annotation._id" class="annotation-item">
         <div class="annotation-content">
           <div class="annotation-header">
-            <span class="annotation-author">{{ getAuthorName(annotation.author) }}</span>
-            <span class="annotation-date">{{ formatDate(annotation.created) }}</span>
-            <div class="annotation-actions">
-              <button
-                v-if="canEdit(annotation)"
-                @click="editAnnotation(annotation)"
-                class="edit-btn"
-              >
-                ✏️
-              </button>
-              <button
-                v-if="canResolve(annotation)"
-                @click="toggleResolve(annotation)"
-                class="resolve-btn"
-                :class="{ resolved: annotation.resolved }"
-              >
-                {{ annotation.resolved ? '✅' : '⭕' }}
-              </button>
-              <button
-                v-if="canDelete(annotation)"
-                @click="deleteAnnotation(annotation._id)"
-                class="delete-btn"
-              >
-                🗑️
-              </button>
+            <div class="annotation-meta">
+              <span class="annotation-author">{{ getAuthorNameDisplay(annotation.author) }}</span>
+              <span class="annotation-date">{{ formatDate(annotation.created) }}</span>
             </div>
           </div>
-
           <div class="annotation-text">
             {{ annotation.text }}
           </div>
@@ -82,45 +19,107 @@
       </div>
     </div>
 
-    <!-- Edit Annotation Modal -->
-    <div v-if="editingAnnotation" class="modal-overlay" @click="cancelEdit">
-      <div class="modal" @click.stop>
-        <h4>Edit Comment</h4>
-        <form @submit.prevent="saveEdit">
-          <textarea v-model="editText" rows="3" class="annotation-textarea"></textarea>
-          <div class="annotation-actions">
-            <button type="button" @click="cancelEdit" class="cancel-btn">Cancel</button>
-            <button type="submit" :disabled="!editText.trim() || isLoading" class="submit-btn">
-              {{ isLoading ? 'Saving...' : 'Save Changes' }}
-            </button>
-          </div>
-        </form>
-      </div>
+    <!-- Annotation Form -->
+    <div v-if="showAnnotationForm" class="annotation-form">
+      <form @submit.prevent="submitAnnotation" class="comment-form">
+        <textarea
+          ref="textareaRef"
+          v-model="annotationText"
+          @input="autoResizeTextarea"
+          placeholder="Add your comment..."
+          rows="1"
+          class="annotation-textarea"
+        ></textarea>
+        <button
+          type="submit"
+          :disabled="!annotationText.trim() || isLoading"
+          class="submit-btn-inline"
+        >
+          <Loader2 v-if="isLoading" :size="16" class="icon-spin" />
+          <Send v-else :size="16" />
+        </button>
+      </form>
+    </div>
+
+    <!-- Show "Add Comment" button if no annotations exist -->
+    <div v-if="annotations.length === 0 && !showAnnotationForm" class="no-annotations">
+      <button @click="emit('show-form')" class="add-comment-btn">+ Add Comment</button>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { Loader2, Send } from 'lucide-vue-next'
+import { computed, nextTick, onMounted, ref, watch, withDefaults } from 'vue'
 import { useAnnotationStore } from '@/stores/annotation'
 import { useAuthStore } from '@/stores/auth'
-import type { Annotation } from '@/types/api'
+import type { User } from '@/types/api'
 
 interface Props {
   recipeId: string
   targetKind: 'Ingredient' | 'Step'
   targetIndex: number
+  showForm?: boolean
+  position?: { x: number; y: number } | null
 }
 
-const props = defineProps<Props>()
+const props = withDefaults(defineProps<Props>(), {
+  showForm: false,
+})
+
+const emit = defineEmits<{
+  close: []
+  'show-form': []
+}>()
 
 const annotationStore = useAnnotationStore()
 const authStore = useAuthStore()
 
-const showAnnotationForm = ref(false)
+const showAnnotationForm = computed({
+  get: () => props.showForm,
+  set: (value) => {
+    if (!value) {
+      emit('close')
+    }
+  },
+})
 const annotationText = ref('')
-const editingAnnotation = ref<Annotation | null>(null)
-const editText = ref('')
+const textareaRef = ref<HTMLTextAreaElement | null>(null)
+const userDetailsCache = ref<Map<string, User>>(new Map())
+const authorNames = ref<Record<string, string>>({})
+
+function autoResizeTextarea() {
+  nextTick(() => {
+    if (textareaRef.value) {
+      textareaRef.value.style.height = 'auto'
+      textareaRef.value.style.height = `${textareaRef.value.scrollHeight}px`
+    }
+  })
+}
+
+watch(
+  () => annotationText.value,
+  () => {
+    autoResizeTextarea()
+  },
+)
+
+watch(
+  () => showAnnotationForm.value,
+  (isOpen) => {
+    if (isOpen) {
+      nextTick(() => {
+        nextTick(() => {
+          autoResizeTextarea()
+          if (textareaRef.value) {
+            textareaRef.value.focus()
+          }
+        })
+      })
+    }
+  },
+  { immediate: true },
+)
 
 const isLoading = computed(() => annotationStore.isLoading)
 const annotations = computed(() =>
@@ -132,32 +131,102 @@ const annotations = computed(() =>
     ),
 )
 
+onMounted(() => {
+  if (showAnnotationForm.value && textareaRef.value) {
+    nextTick(() => {
+      textareaRef.value?.focus()
+    })
+  }
+  // Load author names for all annotations
+  annotations.value.forEach((annotation) => {
+    loadAuthorName(annotation.author)
+  })
+})
+
+// Watch for new annotations and load their author names
+watch(
+  () => annotations.value,
+  (newAnnotations) => {
+    newAnnotations.forEach((annotation) => {
+      loadAuthorName(annotation.author)
+    })
+  },
+  { deep: true },
+)
+
 const sortedAnnotations = computed(() =>
   [...annotations.value].sort(
     (a, b) => new Date(a.created).getTime() - new Date(b.created).getTime(),
   ),
 )
 
-function getAuthorName(authorId: string): string {
-  // In a real app, you'd look up the user name by ID
+const containerStyle = computed(() => {
+  if (!props.position) {
+    return {
+      top: '50%',
+      left: '50%',
+      transform: 'translate(-50%, -50%)',
+    }
+  }
+
+  const x = Math.min(props.position.x, window.innerWidth - 420)
+  const y = Math.min(props.position.y + 20, window.innerHeight - 100)
+
+  return {
+    left: `${x}px`,
+    top: `${y}px`,
+    transform: 'none',
+  }
+})
+
+function getAuthorNameDisplay(authorId: string): string {
+  // Return cached name if available
+  if (authorNames.value[authorId]) {
+    return authorNames.value[authorId]
+  }
+
+  // Load username asynchronously
+  loadAuthorName(authorId)
+
+  // Return fallback while loading
   return `User ${authorId.slice(-4)}`
+}
+
+async function loadAuthorName(authorId: string): Promise<void> {
+  if (!authorId || authorNames.value[authorId]) return
+
+  // Check cache first
+  const cachedUser = userDetailsCache.value.get(authorId)
+  if (cachedUser) {
+    authorNames.value[authorId] =
+      cachedUser.name || cachedUser.username || `User ${authorId.slice(-4)}`
+    return
+  }
+
+  try {
+    // Fetch user details and cache them
+    const userDetails = await authStore.getUserDetails(authorId)
+    userDetailsCache.value.set(authorId, userDetails)
+    const displayName = userDetails.name || userDetails.username || `User ${authorId.slice(-4)}`
+    authorNames.value[authorId] = displayName
+  } catch (error) {
+    console.warn(`Failed to get user details for ${authorId}:`, error)
+    // Cache a fallback
+    const fallbackName = `User ${authorId.slice(-4)}`
+    authorNames.value[authorId] = fallbackName
+    const fallbackUser = {
+      _id: authorId,
+      name: fallbackName,
+      username: `user${authorId.slice(-4)}`,
+      preferences: {},
+    } as User
+    userDetailsCache.value.set(authorId, fallbackUser)
+  }
 }
 
 function formatDate(dateString: string): string {
   const date = new Date(dateString)
   return date.toLocaleDateString()
-}
-
-function canEdit(annotation: Annotation): boolean {
-  return annotation.author === authStore.userId && !annotation.resolved
-}
-
-function canResolve(annotation: Annotation): boolean {
-  return authStore.userId && !annotation.resolved
-}
-
-function canDelete(annotation: Annotation): boolean {
-  return annotation.author === authStore.userId
 }
 
 async function submitAnnotation() {
@@ -172,197 +241,134 @@ async function submitAnnotation() {
     })
 
     annotationText.value = ''
-    showAnnotationForm.value = false
+    if (textareaRef.value) {
+      textareaRef.value.style.height = 'auto'
+    }
+    emit('close')
   } catch (err) {
     console.error('Failed to create annotation:', err)
   }
-}
-
-function editAnnotation(annotation: Annotation) {
-  editingAnnotation.value = annotation
-  editText.value = annotation.text
-}
-
-function cancelEdit() {
-  editingAnnotation.value = null
-  editText.value = ''
-}
-
-async function saveEdit() {
-  if (!editingAnnotation.value || !editText.value.trim()) return
-
-  try {
-    await annotationStore.updateAnnotation(editingAnnotation.value._id, editText.value.trim())
-
-    cancelEdit()
-  } catch (err) {
-    console.error('Failed to update annotation:', err)
-  }
-}
-
-async function toggleResolve(annotation: Annotation) {
-  try {
-    await annotationStore.resolveAnnotation(annotation._id, !annotation.resolved)
-  } catch (err) {
-    console.error('Failed to resolve annotation:', err)
-  }
-}
-
-async function deleteAnnotation(annotationId: string) {
-  if (!confirm('Are you sure you want to delete this comment?')) return
-
-  try {
-    await annotationStore.deleteAnnotation(annotationId)
-  } catch (err) {
-    console.error('Failed to delete annotation:', err)
-  }
-}
-
-function closeForm() {
-  showAnnotationForm.value = false
-  annotationText.value = ''
 }
 </script>
 
 <style scoped>
 .annotation-container {
-  position: relative;
-}
-
-.annotation-btn {
-  background: #f8f9fa;
-  border: 1px solid #dee2e6;
-  border-radius: 6px;
-  padding: 6px 10px;
-  cursor: pointer;
-  font-size: 14px;
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  transition: all 0.2s;
-}
-
-.annotation-btn:hover {
-  background: #e9ecef;
-}
-
-.annotation-btn.has-annotations {
-  background: #e3f2fd;
-  border-color: #1976d2;
-  color: #1976d2;
-}
-
-.annotation-icon {
-  font-size: 16px;
-}
-
-.annotation-count {
-  background: #1976d2;
-  color: white;
-  border-radius: 10px;
-  padding: 2px 6px;
-  font-size: 12px;
-  font-weight: 600;
-}
-
-.annotation-form {
-  position: absolute;
-  top: 100%;
-  left: 0;
-  right: 0;
+  position: fixed;
+  z-index: 1000;
   background: white;
-  border: 1px solid #dee2e6;
+  border: 1px solid #e9ecef;
   border-radius: 8px;
-  padding: 15px;
-  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-  z-index: 10;
-  margin-top: 5px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  max-width: 400px;
+  max-height: 80vh;
+  overflow-y: auto;
+  padding: 16px;
+  padding-bottom: 2px;
 }
 
-.annotation-header {
+.annotation-header-section {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 10px;
+  margin-bottom: 16px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid #e9ecef;
 }
 
-.annotation-header h4 {
+.annotation-header-section h4 {
   margin: 0;
-  font-size: 16px;
   color: #333;
+  font-size: 16px;
+  font-weight: 600;
 }
 
-.close-btn {
-  background: none;
-  border: none;
-  font-size: 20px;
-  cursor: pointer;
-  color: #666;
+.add-comment-btn {
+  color: var(--brand-blue-400);
+  font-size: 14px;
+  padding: 0;
+}
+
+.annotation-form {
+  margin-bottom: 16px;
+}
+
+.comment-form {
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
 }
 
 .annotation-textarea {
-  width: 100%;
-  padding: 10px;
-  border: 1px solid #dee2e6;
-  border-radius: 6px;
+  flex: 1;
+  padding: 8px 0;
+  border: none;
+  border-bottom: 1px solid #e9ecef;
+  outline: none;
+  background: transparent;
+  font-family: inherit;
   font-size: 14px;
-  resize: vertical;
+  resize: none;
   box-sizing: border-box;
+  min-height: 32px;
+  max-height: 200px;
+  overflow-y: auto;
 }
 
 .annotation-textarea:focus {
-  outline: none;
-  border-color: #667eea;
+  border-bottom-color: var(--brand-blue-400);
 }
 
-.annotation-actions {
+.annotation-textarea::placeholder {
+  color: #999;
+  font-style: italic;
+}
+
+.submit-btn-inline {
+  color: var(--brand-blue-400);
+  padding: 0;
   display: flex;
-  gap: 8px;
-  justify-content: flex-end;
-  margin-top: 10px;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  margin-bottom: 2px;
 }
 
-.cancel-btn {
-  background: #f8f9fa;
-  border: 1px solid #dee2e6;
-  padding: 6px 12px;
-  border-radius: 4px;
-  cursor: pointer;
-  font-size: 14px;
-}
-
-.submit-btn {
-  background: #667eea;
-  color: white;
-  border: none;
-  padding: 6px 12px;
-  border-radius: 4px;
-  cursor: pointer;
-  font-size: 14px;
-}
-
-.submit-btn:disabled {
-  opacity: 0.6;
+.submit-btn-inline:disabled {
+  opacity: 0.5;
   cursor: not-allowed;
 }
 
+.submit-btn-inline:disabled:hover {
+  text-decoration: none;
+}
+
+.icon-spin {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .annotations-list {
-  margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
 }
 
 .annotation-item {
-  background: #f8f9fa;
-  border: 1px solid #dee2e6;
-  border-radius: 8px;
-  padding: 12px;
-  margin-bottom: 8px;
-  transition: all 0.2s;
+  padding-bottom: 16px;
+  border-bottom: 1px solid #f0f0f0;
 }
 
-.annotation-item.resolved {
-  background: #e8f5e8;
-  border-color: #28a745;
-  opacity: 0.8;
+.annotation-item:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
 }
 
 .annotation-content {
@@ -370,10 +376,13 @@ function closeForm() {
 }
 
 .annotation-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
   margin-bottom: 8px;
+}
+
+.annotation-meta {
+  display: flex;
+  flex-direction: row;
+  justify-content: space-between;
 }
 
 .annotation-author {
@@ -383,88 +392,37 @@ function closeForm() {
 }
 
 .annotation-date {
-  color: #666;
+  color: #999;
   font-size: 12px;
-}
-
-.annotation-actions {
-  display: flex;
-  gap: 4px;
-}
-
-.edit-btn,
-.resolve-btn,
-.delete-btn {
-  background: none;
-  border: none;
-  cursor: pointer;
-  font-size: 14px;
-  padding: 2px;
-  border-radius: 3px;
-  transition: background-color 0.2s;
-}
-
-.edit-btn:hover,
-.resolve-btn:hover,
-.delete-btn:hover {
-  background: rgba(0, 0, 0, 0.1);
-}
-
-.resolve-btn.resolved {
-  color: #28a745;
+  justify-self: flex-end;
 }
 
 .annotation-text {
   color: #333;
   font-size: 14px;
-  line-height: 1.4;
+  line-height: 1.5;
+  word-wrap: break-word;
 }
 
-.modal-overlay {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: rgba(0, 0, 0, 0.5);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 1000;
+.no-annotations {
+  text-align: center;
+  padding: 20px 0;
 }
 
-.modal {
-  background: white;
-  border-radius: 8px;
-  padding: 20px;
-  width: 90%;
-  max-width: 500px;
-}
-
-.modal h4 {
-  margin: 0 0 15px 0;
-  color: #333;
-  font-size: 18px;
+.no-annotations .add-comment-btn {
+  font-size: 14px;
 }
 
 @media (max-width: 768px) {
-  .annotation-form {
-    position: fixed;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
+  .annotation-container {
     width: 90%;
     max-width: 400px;
   }
 
   .annotation-header {
     flex-direction: column;
-    gap: 10px;
+    gap: 8px;
     align-items: flex-start;
-  }
-
-  .annotation-actions {
-    justify-content: center;
   }
 }
 </style>

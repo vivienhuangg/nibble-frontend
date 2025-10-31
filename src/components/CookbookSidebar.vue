@@ -169,21 +169,11 @@ async function handleCreateNotebook() {
 }
 
 .create-btn {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  color: white;
-  border: none;
-  width: 32px;
-  height: 32px;
-  border-radius: 50%;
-  cursor: pointer;
+  color: var(--brand-indigo-500);
+  width: auto;
+  height: auto;
+  padding: 0;
   font-size: 18px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.create-btn:hover {
-  opacity: 0.9;
 }
 
 .cookbook-list {
@@ -204,8 +194,8 @@ async function handleCreateNotebook() {
 }
 
 .cookbook-item.active {
-  background-color: #e3f2fd;
-  border-left-color: #667eea;
+  background-color: rgba(82, 120, 176, 0.1);
+  border-left-color: var(--brand-indigo-500);
 }
 
 .cookbook-item.shared {
@@ -213,8 +203,8 @@ async function handleCreateNotebook() {
 }
 
 .cookbook-item.shared.active {
-  background-color: #e8f5e8;
-  border-left-color: #28a745;
+  background-color: rgba(184, 220, 219, 0.2);
+  border-left-color: var(--color-success);
 }
 
 .cookbook-icon {
@@ -322,7 +312,7 @@ async function handleCreateNotebook() {
 .form-group input:focus,
 .form-group textarea:focus {
   outline: none;
-  border-color: #667eea;
+  border-color: var(--color-primary);
 }
 
 .form-actions {
@@ -333,26 +323,21 @@ async function handleCreateNotebook() {
 }
 
 .cancel-btn {
-  background: #ddd;
-  color: #333;
-  border: none;
-  padding: 12px 24px;
-  border-radius: 8px;
-  cursor: pointer;
+  color: #6c757d;
+  margin-right: 8px;
 }
 
 .submit-btn {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  color: white;
-  border: none;
-  padding: 12px 24px;
-  border-radius: 8px;
-  cursor: pointer;
+  color: var(--brand-blue-400);
 }
 
 .submit-btn:disabled {
-  opacity: 0.6;
+  opacity: 0.5;
   cursor: not-allowed;
+}
+
+.submit-btn:disabled:hover {
+  text-decoration: none;
 }
 
 @media (max-width: 768px) {

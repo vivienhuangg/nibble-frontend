@@ -1,70 +1,72 @@
 <template>
-  <div class="main-layout">
+  <div class="main-layout" :class="{ 'sidebar-collapsed': sidebarCollapsed }">
+    <!-- Hover trigger zone for collapsed sidebar -->
+    <div
+      class="sidebar-hover-trigger"
+      @mouseenter="sidebarCollapsed = false"
+      @mouseleave="sidebarCollapsed = true"
+    ></div>
+
     <!-- Sidebar -->
-    <aside class="sidebar" :class="{ collapsed: sidebarCollapsed }">
+    <aside
+      class="sidebar"
+      :class="{ collapsed: sidebarCollapsed }"
+      @mouseenter="sidebarCollapsed = false"
+      @mouseleave="sidebarCollapsed = true"
+    >
       <div class="sidebar-header">
-        <h2 v-if="!sidebarCollapsed">Nibble</h2>
-        <button @click="toggleSidebar" class="toggle-btn">
-          {{ sidebarCollapsed ? '☰' : '✕' }}
-        </button>
+        <h2>Nibble</h2>
       </div>
 
-      <nav class="sidebar-nav">
-        <div class="nav-section">
-          <h3 v-if="!sidebarCollapsed">Cookbooks</h3>
-          <div class="nav-items">
-            <button
-              v-for="notebook in userNotebooks || []"
-              :key="notebook._id"
-              @click="selectNotebook(notebook)"
-              class="nav-item"
-              :class="{ active: currentNotebook?._id === notebook._id }"
-            >
-              <span v-if="!sidebarCollapsed">{{ notebook.title }}</span>
-              <span v-else class="nav-icon">📚</span>
+      <div class="sidebar-content">
+        <nav class="sidebar-nav">
+          <div class="nav-section">
+            <button @click="showCreateNotebook = true" class="create-notebook-btn">
+              + New Cookbook
             </button>
           </div>
-        </div>
 
-        <div class="nav-section">
-          <h3 v-if="!sidebarCollapsed">Shared</h3>
-          <div class="nav-items">
-            <button
-              v-for="notebook in sharedNotebooks || []"
-              :key="notebook._id"
-              @click="selectNotebook(notebook)"
-              class="nav-item shared"
-              :class="{ active: currentNotebook?._id === notebook._id }"
-            >
-              <span v-if="!sidebarCollapsed">{{ notebook.title }}</span>
-              <span v-else class="nav-icon">👥</span>
-            </button>
+          <div class="nav-section">
+            <h3>Cookbooks</h3>
+            <div class="nav-items">
+              <button
+                v-for="notebook in userNotebooks || []"
+                :key="notebook._id"
+                @click="selectNotebook(notebook)"
+                class="nav-item"
+                :class="{ active: currentNotebook?._id === notebook._id }"
+              >
+                {{ notebook.title }}
+              </button>
+            </div>
+          </div>
+
+          <div class="nav-section">
+            <h3>Shared</h3>
+            <div class="nav-items">
+              <button
+                v-for="notebook in sharedNotebooks || []"
+                :key="notebook._id"
+                @click="selectNotebook(notebook)"
+                class="nav-item shared"
+                :class="{ active: currentNotebook?._id === notebook._id }"
+              >
+                {{ notebook.title }}
+              </button>
+            </div>
+          </div>
+        </nav>
+
+        <div class="sidebar-footer">
+          <div class="footer-actions">
+            <button @click="handleLogout" class="nav-item logout-btn">Logout</button>
           </div>
         </div>
-
-        <div class="nav-section">
-          <button @click="showCreateNotebook = true" class="create-notebook-btn">
-            <span v-if="!sidebarCollapsed">+ New Cookbook</span>
-            <span v-else class="nav-icon">+</span>
-          </button>
-        </div>
-      </nav>
+      </div>
     </aside>
 
     <!-- Main Content -->
     <main class="main-content">
-      <header class="content-header">
-        <div class="breadcrumb">
-          <span v-if="currentNotebook">{{ currentNotebook.title }}</span>
-          <span v-else>Select a Cookbook</span>
-        </div>
-        <div class="header-actions">
-          <button @click="goToRecipes" class="action-btn">All Recipes</button>
-          <button @click="goToHome" class="action-btn">Home</button>
-          <button @click="handleLogout" class="action-btn logout-btn">Logout</button>
-        </div>
-      </header>
-
       <div class="content-body">
         <slot />
       </div>
@@ -124,7 +126,7 @@ const recipeStore = useRecipeStore()
 const versionStore = useVersionStore()
 const annotationStore = useAnnotationStore()
 
-const sidebarCollapsed = ref(false)
+const sidebarCollapsed = ref(true)
 const showCreateNotebook = ref(false)
 
 const isLoading = computed(() => notebookStore.isLoading)
@@ -142,10 +144,6 @@ const newNotebook = reactive({
   title: '',
   description: '',
 })
-
-function toggleSidebar() {
-  sidebarCollapsed.value = !sidebarCollapsed.value
-}
 
 function selectNotebook(notebook: { _id: string }) {
   notebookStore.loadNotebookById(notebook._id)
@@ -213,25 +211,43 @@ onMounted(async () => {
 .main-layout {
   display: flex;
   height: 100vh;
-  background-color: #f8f9fa;
+  background-color: white;
 }
 
 .sidebar {
   width: 280px;
   background: white;
   border-right: 1px solid #e1e5e9;
-  transition: width 0.3s ease;
+  transition: transform 0.3s ease;
   overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  z-index: 100;
 }
 
 .sidebar.collapsed {
-  width: 60px;
+  transform: translateX(-100%);
+  position: fixed;
+  left: 0;
+  top: 0;
+  height: 100vh;
+}
+
+.sidebar-hover-trigger {
+  position: fixed;
+  left: 0;
+  top: 0;
+  width: 20px;
+  height: 100vh;
+  z-index: 101;
+  background: transparent;
+  pointer-events: auto;
 }
 
 .sidebar-header {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   padding: 20px;
   border-bottom: 1px solid #e1e5e9;
 }
@@ -243,17 +259,35 @@ onMounted(async () => {
   font-weight: 600;
 }
 
-.toggle-btn {
-  background: none;
-  border: none;
-  font-size: 18px;
-  cursor: pointer;
-  color: #666;
-  padding: 5px;
+.sidebar-content {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  overflow: hidden;
 }
 
 .sidebar-nav {
   padding: 20px 0;
+  flex: 1;
+  overflow-y: auto;
+}
+
+.sidebar-footer {
+  border-top: 1px solid #e1e5e9;
+  padding: 15px 0;
+  display: flex;
+  flex-direction: column;
+  margin-top: auto;
+}
+
+.footer-actions {
+  display: flex;
+  flex-direction: column;
+}
+
+.footer-actions .nav-item {
+  width: 100%;
+  justify-content: flex-start;
 }
 
 .nav-section {
@@ -288,20 +322,19 @@ onMounted(async () => {
 }
 
 .nav-item:hover {
-  background-color: #f8f9fa;
+  opacity: 0.8;
 }
 
 .nav-item.active {
-  background-color: #667eea;
-  color: white;
+  color: var(--brand-blue-400);
 }
 
 .nav-item.shared {
-  color: #28a745;
+  color: var(--color-success);
 }
 
 .nav-item.shared.active {
-  color: white;
+  color: var(--brand-blue-400);
 }
 
 .nav-icon {
@@ -312,21 +345,20 @@ onMounted(async () => {
 .create-notebook-btn {
   display: flex;
   align-items: center;
-  padding: 12px 20px;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  color: white;
-  border: none;
+  color: var(--brand-blue-400);
   text-align: left;
+  padding: 12px 20px;
+  background: none;
+  border: none;
   cursor: pointer;
   font-size: 16px;
-  font-weight: 500;
-  margin: 0 20px;
-  border-radius: 8px;
+  width: 100%;
+  justify-content: flex-start;
   transition: opacity 0.2s;
 }
 
 .create-notebook-btn:hover {
-  opacity: 0.9;
+  opacity: 0.8;
 }
 
 .main-content {
@@ -334,57 +366,22 @@ onMounted(async () => {
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  transition: margin-left 0.3s ease;
 }
 
-.content-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 20px 30px;
-  background: white;
-  border-bottom: 1px solid #e1e5e9;
-}
-
-.breadcrumb {
-  font-size: 18px;
-  font-weight: 600;
-  color: #333;
-}
-
-.header-actions {
-  display: flex;
-  gap: 10px;
-}
-
-.action-btn {
-  background: #f8f9fa;
-  border: 1px solid #dee2e6;
-  padding: 8px 16px;
-  border-radius: 6px;
-  cursor: pointer;
-  color: #495057;
-  font-size: 14px;
-}
-
-.action-btn:hover {
-  background: #e9ecef;
+.main-layout.sidebar-collapsed .main-content {
+  margin-left: 0;
 }
 
 .logout-btn {
-  background: #dc3545;
-  color: white;
-  border-color: #dc3545;
-}
-
-.logout-btn:hover {
-  background: #c82333;
-  border-color: #bd2130;
+  color: var(--color-danger);
 }
 
 .content-body {
   flex: 1;
-  padding: 30px;
+  padding: 30px 60px;
   overflow-y: auto;
+  background: white;
 }
 
 .modal-overlay {
@@ -438,7 +435,7 @@ onMounted(async () => {
 .form-group input:focus,
 .form-group textarea:focus {
   outline: none;
-  border-color: #667eea;
+  border-color: var(--color-primary);
 }
 
 .form-actions {
@@ -449,21 +446,11 @@ onMounted(async () => {
 }
 
 .cancel-btn {
-  background: #ddd;
-  color: #333;
-  border: none;
-  padding: 12px 24px;
-  border-radius: 8px;
-  cursor: pointer;
+  color: #6c757d;
 }
 
 .submit-btn {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  color: white;
-  border: none;
-  padding: 12px 24px;
-  border-radius: 8px;
-  cursor: pointer;
+  color: var(--brand-blue-400);
 }
 
 .submit-btn:disabled {
@@ -492,7 +479,7 @@ onMounted(async () => {
   }
 
   .content-body {
-    padding: 20px;
+    padding: 20px 20px;
   }
 }
 </style>

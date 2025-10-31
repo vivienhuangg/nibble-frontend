@@ -44,12 +44,7 @@ export function validateEmail(email: string): ValidationError | null {
 }
 
 export function validatePassword(password: string): ValidationError | null {
-	if (password.length < 8) {
-		return {
-			field: "password",
-			message: "Password must be at least 8 characters long",
-		};
-	}
+	// No minimum length requirement
 	return null;
 }
 
@@ -58,12 +53,7 @@ export function validateMinLength(
 	minLength: number,
 	fieldName: string,
 ): ValidationError | null {
-	if (value.length < minLength) {
-		return {
-			field: fieldName,
-			message: `${fieldName} must be at least ${minLength} characters long`,
-		};
-	}
+	// Minimum length validation removed - no restrictions
 	return null;
 }
 
@@ -97,12 +87,14 @@ export function validateUserRegistration(
 		if (nameMaxError) errors.push(nameMaxError);
 	}
 
-	// Validate email
-	const emailRequiredError = validateRequired(data.email, "Email");
-	if (emailRequiredError) errors.push(emailRequiredError);
+	// Validate username
+	const usernameRequiredError = validateRequired(data.username, "Username");
+	if (usernameRequiredError) errors.push(usernameRequiredError);
 	else {
-		const emailFormatError = validateEmail(data.email);
-		if (emailFormatError) errors.push(emailFormatError);
+		const usernameLengthError = validateMinLength(data.username, 3, "Username");
+		if (usernameLengthError) errors.push(usernameLengthError);
+		const usernameMaxError = validateMaxLength(data.username, 50, "Username");
+		if (usernameMaxError) errors.push(usernameMaxError);
 	}
 
 	// Validate password
@@ -118,12 +110,8 @@ export function validateUserRegistration(
 export function validateUserLogin(data: UserLogin): ValidationResult {
 	const errors: ValidationError[] = [];
 
-	const emailRequiredError = validateRequired(data.email, "Email");
-	if (emailRequiredError) errors.push(emailRequiredError);
-	else {
-		const emailFormatError = validateEmail(data.email);
-		if (emailFormatError) errors.push(emailFormatError);
-	}
+	const usernameRequiredError = validateRequired(data.username, "Username");
+	if (usernameRequiredError) errors.push(usernameRequiredError);
 
 	const passwordRequiredError = validateRequired(data.password, "Password");
 	if (passwordRequiredError) errors.push(passwordRequiredError);

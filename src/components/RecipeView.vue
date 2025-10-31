@@ -1,30 +1,5 @@
 <template>
   <div class="recipe-view">
-    <div class="recipe-header">
-      <div class="breadcrumb">
-        <button @click="goBack" class="back-btn">← Back</button>
-        <span class="separator">/</span>
-        <span class="cookbook-name">{{ currentNotebook?.title || 'Cookbook' }}</span>
-      </div>
-
-      <div class="recipe-actions">
-        <button @click="showVersionView = true" class="version-btn">📝 Versions</button>
-        <button @click="toggleEditMode" class="edit-mode-btn" :class="{ active: editMode }">
-          {{ editMode ? '💾 Save' : '✏️ Edit' }}
-        </button>
-        <button
-          @click="forkRecipe"
-          :disabled="isOwnRecipe"
-          :title="isOwnRecipe ? 'You can\'t fork your own recipe!' : 'Create a copy of this recipe'"
-          class="fork-btn"
-          :class="{ disabled: isOwnRecipe }"
-        >
-          🍴 Fork
-        </button>
-        <button @click="shareRecipe" class="share-btn">📤 Share</button>
-      </div>
-    </div>
-
     <div v-if="isLoading" class="loading">Loading recipe...</div>
 
     <div v-else-if="error" class="error-message">
@@ -34,34 +9,57 @@
     <div v-else-if="currentRecipe" class="recipe-content">
       <!-- Recipe Title and Meta -->
       <div class="recipe-info">
-        <h1
-          v-if="!editingTitle"
-          @click="startEditingTitle"
-          @mouseenter="showEditHint = 'title'"
-          @mouseleave="showEditHint = null"
-          class="editable-title"
-          :class="{ 'can-edit': isOwnRecipe && editMode }"
-        >
-          {{ currentRecipe.title }}
-          <span v-if="showEditHint === 'title' && isOwnRecipe && editMode" class="edit-hint"
-            >✏️</span
+        <div class="title-row">
+          <h1
+            v-if="!editingTitle"
+            @click="startEditingTitle"
+            @mouseenter="showEditHint = 'title'"
+            @mouseleave="showEditHint = null"
+            class="editable-title plain-title"
+            :class="{ 'can-edit': isOwnRecipe && editMode }"
           >
-        </h1>
-        <input
-          v-else
-          v-model="editingTitleValue"
-          @blur="saveTitle"
-          @keydown.enter="saveTitle"
-          @keydown.escape="cancelEditTitle"
-          class="editable-input title-input"
-          ref="titleInput"
-        />
+            {{ currentRecipe.title }}
+            <span v-if="showEditHint === 'title' && isOwnRecipe && editMode" class="edit-hint"
+              >✏️</span
+            >
+          </h1>
+          <input
+            v-else
+            v-model="editingTitleValue"
+            @blur="saveTitle"
+            @keydown.enter="saveTitle"
+            @keydown.escape="cancelEditTitle"
+            class="plain-title-input"
+            ref="titleInput"
+          />
 
-        <!-- Save indicator -->
-        <div v-if="isOwnRecipe" class="save-indicator">
-          <span v-if="isSaving" class="saving-indicator">💾 Saving...</span>
-          <span v-else-if="hasUnsavedChanges" class="unsaved-indicator">● Unsaved changes</span>
-          <span v-else class="saved-indicator">✓ Saved</span>
+          <!-- Save indicator -->
+          <div v-if="isOwnRecipe" class="save-indicator">
+            <span v-if="isSaving" class="saving-indicator">💾 Saving...</span>
+            <span v-else-if="hasUnsavedChanges" class="unsaved-indicator">● Draft</span>
+            <span v-else class="saved-indicator">✓ Saved</span>
+          </div>
+
+          <div class="header-actions">
+            <button v-if="isOwnRecipe && editMode" @click="showDraftModal = true" class="draft-btn">
+              AI Draft
+            </button>
+            <button @click="toggleEditMode" class="edit-mode-btn" :class="{ active: editMode }">
+              {{ editMode ? 'Save' : 'Edit' }}
+            </button>
+            <button
+              @click="forkRecipe"
+              :disabled="isOwnRecipe"
+              :title="
+                isOwnRecipe ? 'You can\'t fork your own recipe!' : 'Create a copy of this recipe'
+              "
+              class="fork-btn"
+              :class="{ disabled: isOwnRecipe }"
+            >
+              Fork
+            </button>
+            <button @click="shareRecipe" class="share-btn">Add to Cookbook</button>
+          </div>
         </div>
 
         <div
@@ -69,7 +67,7 @@
           @click="startEditingDescription"
           @mouseenter="showEditHint = 'description'"
           @mouseleave="showEditHint = null"
-          class="editable-description"
+          class="editable-description plain-description"
           :class="{ 'can-edit': isOwnRecipe && editMode }"
         >
           {{ currentRecipe.description }}
@@ -82,32 +80,38 @@
           v-model="editingDescriptionValue"
           @blur="saveDescription"
           @keydown.escape="cancelEditDescription"
-          class="editable-textarea description-input"
+          @input="autoExpandTextarea($event)"
+          class="plain-description-input"
           ref="descriptionInput"
           rows="3"
         ></textarea>
-        <div
+        <textarea
           v-else-if="!currentRecipe.description && isOwnRecipe && editMode"
           @click="startEditingDescription"
-          @mouseenter="showEditHint = 'description'"
-          @mouseleave="showEditHint = null"
-          class="editable-description placeholder"
-        >
-          Click to add description...
-          <span v-if="showEditHint === 'description'" class="edit-hint">✏️</span>
-        </div>
+          @focus="startEditingDescription"
+          @input="autoExpandTextarea($event)"
+          class="plain-description-input"
+          placeholder="Recipe description (optional)"
+          rows="3"
+        ></textarea>
 
         <div class="recipe-meta">
-          <div class="version-info">
-            <span class="version-number">v{{ latestVersion?.versionNum || '1.0' }}</span>
-            <span class="version-author"> by {{ authorName }}</span>
-            <span class="version-date">{{
-              formatDate(latestVersion?.created || currentRecipe.updated)
-            }}</span>
+          <div class="recipe-author-info">
+            <span class="recipe-author"> by {{ authorName }}</span>
+            <span class="recipe-date">{{ formatDate(currentRecipe.updated) }}</span>
+            <div v-if="cookbooksContainingRecipe.length > 0" class="cookbook-info">
+              <span
+                v-for="notebook in cookbooksContainingRecipe"
+                :key="notebook._id"
+                class="cookbook-badge"
+              >
+                {{ notebook.title }}
+              </span>
+            </div>
           </div>
 
           <div class="recipe-stats">
-            <span class="fork-count">{{ versionCount }} forks</span>
+            <span class="fork-count">{{ forkCount }} forks</span>
             <span class="annotation-count">{{ annotationCount }} comments</span>
           </div>
         </div>
@@ -126,196 +130,187 @@
             </span>
           </div>
         </div>
-        <div v-else class="sharing-info">
-          <span class="sharing-label">Not currently shared</span>
+      </div>
+
+      <!-- Draft Status Banner -->
+      <div v-if="currentDraft" class="draft-banner">
+        <div class="draft-banner-content">
+          <div class="draft-info">
+            <span class="draft-label">✨ AI Draft Preview</span>
+            <span class="draft-confidence" :class="getDraftConfidenceClass()"
+              >{{ Math.round(currentDraft.confidence * 100) }}% confidence</span
+            >
+          </div>
+          <div class="draft-actions">
+            <button @click="discardDraft" class="discard-draft-btn">Discard</button>
+            <button @click="acceptDraft" :disabled="isAcceptingDraft" class="accept-draft-btn">
+              {{ isAcceptingDraft ? 'Applying...' : 'Accept & Apply Changes' }}
+            </button>
+          </div>
+        </div>
+        <div v-if="currentDraft.notes" class="draft-notes">
+          {{ currentDraft.notes }}
         </div>
       </div>
 
-      <!-- Ingredients Section -->
-      <section class="ingredients-section">
-        <h2>Ingredients</h2>
-        <div v-if="displayIngredients.length === 0 && !isOwnRecipe" class="debug-info">
-          Debug: No ingredients found. displayIngredients length: {{ displayIngredients.length }}
-        </div>
-        <div
-          v-else-if="displayIngredients.length === 0 && isOwnRecipe && editMode"
-          class="empty-state"
-        >
-          <div @click="addNewIngredient" class="add-ingredient-placeholder">
-            + Add first ingredient
+      <!-- Ingredients and Steps Side by Side -->
+      <div class="content-grid">
+        <!-- Ingredients Section -->
+        <section class="ingredients-section">
+          <h2>Ingredients</h2>
+          <div v-if="displayIngredients.length === 0 && !isOwnRecipe" class="debug-info">
+            Debug: No ingredients found. displayIngredients length: {{ displayIngredients.length }}
           </div>
-        </div>
-        <div class="ingredients-list">
           <div
-            v-for="(ingredient, index) in displayIngredients"
-            :key="index"
-            class="ingredient-item"
-            :class="{ 'can-edit': isOwnRecipe && editMode }"
-            @mouseenter="showEditHint = `ingredient-${index}`"
-            @mouseleave="showEditHint = null"
+            v-else-if="displayIngredients.length === 0 && isOwnRecipe && editMode"
+            class="empty-state"
           >
-            <div
-              v-if="editingIngredient !== index"
-              @click="startEditingIngredient(index)"
-              class="ingredient-content editable-ingredient"
-            >
-              <span class="ingredient-quantity">{{ ingredient.quantity || 'Amount' }}</span>
-              <span v-if="ingredient.unit" class="ingredient-unit">{{ ingredient.unit }}</span>
-              <span class="ingredient-name">{{ ingredient.name }}</span>
-              <span v-if="ingredient.notes" class="ingredient-notes">({{ ingredient.notes }})</span>
-              <span
-                v-if="showEditHint === `ingredient-${index}` && isOwnRecipe && editMode"
-                class="edit-hint"
-                >✏️</span
+            <div @click="addNewIngredient" class="add-ingredient-placeholder">
+              + Add first ingredient
+            </div>
+          </div>
+          <div class="ingredients-list">
+            <!-- Edit Mode: Always show inputs -->
+            <template v-if="isOwnRecipe && editMode">
+              <div
+                v-for="(ingredient, index) in localIngredients"
+                :key="index"
+                class="ingredient-item"
               >
-            </div>
-            <div v-else class="ingredient-edit-form">
-              <input
-                v-model="editingIngredientValue.name"
-                @blur="saveIngredient(index)"
-                @keydown.enter="saveIngredient(index)"
-                @keydown.escape="cancelEditIngredient"
-                class="editable-input ingredient-name-input"
-                placeholder="Ingredient name"
-                ref="ingredientNameInput"
-              />
-              <input
-                v-model="editingIngredientValue.quantity"
-                @blur="saveIngredient(index)"
-                @keydown.enter="saveIngredient(index)"
-                @keydown.escape="cancelEditIngredient"
-                class="editable-input ingredient-quantity-input"
-                placeholder="Amount"
-              />
-              <input
-                v-model="editingIngredientValue.unit"
-                @blur="saveIngredient(index)"
-                @keydown.enter="saveIngredient(index)"
-                @keydown.escape="cancelEditIngredient"
-                class="editable-input ingredient-unit-input"
-                placeholder="Unit"
-              />
-              <input
-                v-model="editingIngredientValue.notes"
-                @blur="saveIngredient(index)"
-                @keydown.enter="saveIngredient(index)"
-                @keydown.escape="cancelEditIngredient"
-                class="editable-input ingredient-notes-input"
-                placeholder="Notes"
-              />
-              <button @click="removeIngredient(index)" class="remove-ingredient-btn">×</button>
-            </div>
-            <AnnotationSystem
-              :recipe-id="currentRecipe._id"
-              target-kind="Ingredient"
-              :target-index="index"
-            />
-          </div>
-          <div v-if="isOwnRecipe && editMode" class="add-ingredient-btn" @click="addNewIngredient">
-            + Add ingredient
-          </div>
-        </div>
-      </section>
-
-      <!-- Steps Section -->
-      <section class="steps-section">
-        <h2>Instructions</h2>
-        <div v-if="displaySteps.length === 0 && !isOwnRecipe" class="debug-info">
-          Debug: No steps found. displaySteps length: {{ displaySteps.length }}
-        </div>
-        <div v-else-if="displaySteps.length === 0 && isOwnRecipe && editMode" class="empty-state">
-          <div @click="addNewStep" class="add-step-placeholder">+ Add first step</div>
-        </div>
-        <div class="steps-list">
-          <div
-            v-for="(step, index) in displaySteps"
-            :key="index"
-            class="step-item"
-            :class="{ 'can-edit': isOwnRecipe && editMode }"
-            @mouseenter="showEditHint = `step-${index}`"
-            @mouseleave="showEditHint = null"
-          >
-            <div class="step-number">{{ index + 1 }}</div>
-            <div
-              v-if="editingStep !== index"
-              @click="startEditingStep(index)"
-              class="step-content editable-step"
-            >
-              <p class="step-description">{{ step.description }}</p>
-              <div v-if="step.duration" class="step-duration">
-                Duration: {{ step.duration }} minutes
+                <input
+                  v-model="ingredient.quantity"
+                  @keydown.enter="addIngredientIfComplete(index)"
+                  @blur="addIngredientIfComplete(index)"
+                  class="plain-input ingredient-quantity-input"
+                  placeholder="Amount"
+                />
+                <input
+                  v-model="ingredient.unit"
+                  @keydown.enter="addIngredientIfComplete(index)"
+                  @blur="addIngredientIfComplete(index)"
+                  class="plain-input ingredient-unit-input"
+                  placeholder="Unit"
+                />
+                <textarea
+                  v-model="ingredient.name"
+                  @keydown.enter="addIngredientIfComplete(index)"
+                  @blur="addIngredientIfComplete(index)"
+                  @input="autoExpandTextarea($event)"
+                  class="plain-textarea ingredient-name-input"
+                  placeholder="Ingredient name"
+                ></textarea>
+                <textarea
+                  v-model="ingredient.notes"
+                  @keydown.enter="addIngredientIfComplete(index)"
+                  @blur="addIngredientIfComplete(index)"
+                  @input="autoExpandTextarea($event)"
+                  class="plain-textarea ingredient-notes-input"
+                  placeholder="Notes (optional)"
+                ></textarea>
+                <button @click="removeIngredient(index)" class="remove-ingredient-btn">-</button>
               </div>
-              <div v-if="step.notes" class="step-notes">Note: {{ step.notes }}</div>
-              <span
-                v-if="showEditHint === `step-${index}` && isOwnRecipe && editMode"
-                class="edit-hint"
-                >✏️</span
+            </template>
+            <!-- View Mode: Show as text -->
+            <template v-else>
+              <div
+                v-for="(ingredient, index) in displayIngredients"
+                :key="index"
+                class="ingredient-item"
+                :class="currentDraft ? getIngredientChangeClass(index) : ''"
+                @click="handleAnnotationClick('Ingredient', index, $event)"
               >
-            </div>
-            <div v-else class="step-edit-form">
-              <textarea
-                v-model="editingStepValue.description"
-                @blur="saveStep(index)"
-                @keydown.escape="cancelEditStep"
-                class="editable-textarea step-description-input"
-                placeholder="Step description"
-                ref="stepDescriptionInput"
-                rows="2"
-              ></textarea>
-              <input
-                v-model.number="editingStepValue.duration"
-                @blur="saveStep(index)"
-                @keydown.escape="cancelEditStep"
-                class="editable-input step-duration-input"
-                placeholder="Duration (minutes)"
-                type="number"
-                min="0"
-              />
-              <input
-                v-model="editingStepValue.notes"
-                @blur="saveStep(index)"
-                @keydown.escape="cancelEditStep"
-                class="editable-input step-notes-input"
-                placeholder="Notes (optional)"
-              />
-              <button @click="removeStep(index)" class="remove-step-btn">×</button>
-            </div>
-            <AnnotationSystem
-              :recipe-id="currentRecipe._id"
-              target-kind="Step"
-              :target-index="index"
-            />
+                <div class="ingredient-content">
+                  <span class="ingredient-quantity">{{ ingredient.quantity || 'Amount' }}</span>
+                  <span v-if="ingredient.unit" class="ingredient-unit">{{ ingredient.unit }}</span>
+                  <span class="ingredient-name">{{ ingredient.name }}</span>
+                  <span v-if="ingredient.notes" class="ingredient-notes"
+                    >({{ ingredient.notes }})</span
+                  >
+                </div>
+              </div>
+            </template>
           </div>
-          <div v-if="isOwnRecipe && editMode" class="add-step-btn" @click="addNewStep">
-            + Add step
+        </section>
+
+        <!-- Steps Section -->
+        <section class="steps-section">
+          <h2>Instructions</h2>
+          <div v-if="displaySteps.length === 0 && !isOwnRecipe" class="debug-info">
+            Debug: No steps found. displaySteps length: {{ displaySteps.length }}
           </div>
-        </div>
-      </section>
+          <div v-else-if="displaySteps.length === 0 && isOwnRecipe && editMode" class="empty-state">
+            <div @click="addNewStep" class="add-step-placeholder">+ Add first step</div>
+          </div>
+          <div class="steps-list">
+            <!-- Edit Mode: Always show inputs -->
+            <template v-if="isOwnRecipe && editMode">
+              <div v-for="(step, index) in localSteps" :key="index" class="step-item">
+                <div class="step-number">{{ index + 1 }}</div>
+                <textarea
+                  v-model="step.description"
+                  @blur="addStepIfComplete(index)"
+                  @input="autoExpandTextarea($event)"
+                  class="plain-textarea step-description-input"
+                  placeholder="Step description"
+                ></textarea>
+                <textarea
+                  v-model="step.notes"
+                  @keydown.enter="addStepIfComplete(index)"
+                  @blur="addStepIfComplete(index)"
+                  @input="autoExpandTextarea($event)"
+                  class="plain-textarea step-notes-input"
+                  placeholder="Notes (optional)"
+                ></textarea>
+                <button @click="removeStep(index)" class="remove-step-btn">-</button>
+              </div>
+            </template>
+            <!-- View Mode: Show as text -->
+            <template v-else>
+              <div
+                v-for="(step, index) in displaySteps"
+                :key="index"
+                class="step-item"
+                :class="currentDraft ? getStepChangeClass(index) : ''"
+                @click="handleAnnotationClick('Step', index, $event)"
+              >
+                <div class="step-number">{{ index + 1 }}</div>
+                <div class="step-content">
+                  <p class="step-description">{{ step.description }}</p>
+                  <div v-if="step.notes" class="step-notes">Note: {{ step.notes }}</div>
+                </div>
+              </div>
+            </template>
+          </div>
+        </section>
+      </div>
     </div>
+
+    <!-- Annotation Overlay Backdrop -->
+    <div v-if="activeAnnotation" class="annotation-overlay-backdrop" @click="closeAnnotation"></div>
+
+    <!-- Annotation Overlay -->
+    <AnnotationSystem
+      v-if="activeAnnotation && currentRecipe"
+      :recipe-id="currentRecipe._id"
+      :target-kind="activeAnnotation.targetKind"
+      :target-index="activeAnnotation.targetIndex"
+      :show-form="activeAnnotation.showForm"
+      :position="annotationPosition"
+      @close="closeAnnotation"
+      @show-form="activeAnnotation.showForm = true"
+    />
 
     <!-- Version View Sidebar -->
-    <div v-if="showVersionView" class="version-sidebar">
-      <div class="sidebar-header">
-        <h3>Version History</h3>
-        <button @click="showVersionView = false" class="close-btn">×</button>
-      </div>
-      <VersionView :recipe-id="currentRecipe?._id || ''" />
-    </div>
-
-    <!-- Version Sidebar Overlay -->
-    <div v-if="showVersionView" class="sidebar-overlay" @click="showVersionView = false"></div>
 
     <!-- Share Modal -->
     <div v-if="showShareModal" class="share-modal">
       <div class="modal-content">
         <div class="modal-header">
-          <h3>Share Recipe</h3>
+          <h3>Add to Cookbook</h3>
           <button @click="showShareModal = false" class="close-btn">×</button>
         </div>
 
         <div class="modal-body">
-          <p>Add this recipe to one of your notebooks:</p>
-
           <div v-if="availableNotebooks.length === 0" class="no-notebooks">
             <p>You don't have any notebooks yet.</p>
             <button @click="showCreateForm = true" class="create-notebook-btn">
@@ -344,6 +339,7 @@
                   id="notebook-description"
                   v-model="newNotebook.description"
                   placeholder="Enter notebook description"
+                  @input="autoExpandTextarea($event)"
                   class="form-textarea"
                   rows="3"
                 ></textarea>
@@ -353,7 +349,7 @@
                   Cancel
                 </button>
                 <button type="submit" :disabled="isCreating" class="create-btn">
-                  {{ isCreating ? 'Creating...' : 'Create & Share' }}
+                  {{ isCreating ? 'Creating...' : 'Create & Add' }}
                 </button>
               </div>
             </form>
@@ -378,7 +374,7 @@
 
               <div class="notebook-actions">
                 <span v-if="isRecipeInNotebook(notebook)" class="already-shared-badge">
-                  ✓ Already shared
+                  ✓ Already in cookbook
                 </span>
                 <button
                   v-else
@@ -386,7 +382,7 @@
                   :disabled="isSharing"
                   class="share-to-notebook-btn"
                 >
-                  {{ isSharing ? 'Sharing...' : 'Add to notebook' }}
+                  {{ isSharing ? 'Adding...' : 'Add to Cookbook' }}
                 </button>
               </div>
             </div>
@@ -397,30 +393,42 @@
 
     <!-- Share Modal Overlay -->
     <div v-if="showShareModal" class="modal-overlay" @click="showShareModal = false"></div>
+
+    <!-- Draft Version Modal -->
+    <DraftVersionModal
+      v-if="showDraftModal && currentRecipe"
+      :show-modal="showDraftModal"
+      :recipe-id="currentRecipe._id"
+      :base-ingredients="baseIngredients"
+      :base-steps="baseSteps"
+      @close="handleDraftClose"
+      @draft-ready="handleDraftReady"
+    />
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { recipeApi } from '@/services/api'
 import { useAnnotationStore } from '@/stores/annotation'
 import { useAuthStore } from '@/stores/auth'
 import { useNotebookStore } from '@/stores/notebook'
 import { useRecipeStore } from '@/stores/recipe'
-import { useVersionStore } from '@/stores/version'
-import type { Notebook, User } from '@/types/api'
+import type { Notebook, User, VersionDraft } from '@/types/api'
 import AnnotationSystem from './AnnotationSystem.vue'
-import VersionView from './VersionView.vue'
+import DraftVersionModal from './DraftVersionModal.vue'
 
 const route = useRoute()
 const router = useRouter()
 const recipeStore = useRecipeStore()
 const notebookStore = useNotebookStore()
-const versionStore = useVersionStore()
 const annotationStore = useAnnotationStore()
 const authStore = useAuthStore()
 
-const showVersionView = ref(false)
+const showDraftModal = ref(false)
+const currentDraft = ref<VersionDraft | null>(null)
+const isAcceptingDraft = ref(false)
 const sharedUsers = ref<User[]>([])
 const userDetailsCache = ref<Map<string, User>>(new Map())
 const authorName = ref<string>('Loading...')
@@ -448,78 +456,49 @@ const editingIngredientValue = ref({
   unit: '',
   notes: '',
 })
-const editingStepValue = ref({ description: '', duration: 0, notes: '' })
+const editingStepValue = ref({ description: '', notes: '' })
 const isSaving = ref(false)
 
 // Local state for smooth editing
 const localIngredients = ref<
   Array<{ name: string; quantity: string; unit: string; notes: string }>
 >([])
-const localSteps = ref<Array<{ description: string; duration: number; notes: string }>>([])
+const localSteps = ref<Array<{ description: string; notes: string }>>([])
 const hasUnsavedChanges = ref(false)
 
-const isLoading = computed(
-  () => recipeStore.isLoading || versionStore.isLoading || annotationStore.isLoading,
-)
+// Annotation state
+const activeAnnotation = ref<{
+  targetKind: 'Ingredient' | 'Step'
+  targetIndex: number
+  showForm: boolean
+} | null>(null)
+const annotationPosition = ref<{ x: number; y: number } | null>(null)
+
+const isLoading = computed(() => recipeStore.isLoading || annotationStore.isLoading)
 const error = computed(() => recipeStore.error)
 const currentRecipe = computed(() => recipeStore.currentRecipe)
 const currentNotebook = computed(() => notebookStore.currentNotebook)
 
-const versions = computed(() =>
-  currentRecipe.value ? versionStore.versionsByRecipe(currentRecipe.value._id) : [],
-)
-
-const latestVersion = computed(() => {
-  if (versions.value.length === 0) return null
-  return versions.value.reduce((latest, version) =>
-    parseFloat(version.versionNum) > parseFloat(latest.versionNum) ? version : latest,
-  )
-})
-
-const versionCount = computed(() => versions.value.length)
+const forkCount = ref(0)
 const annotationCount = computed(() =>
   currentRecipe.value ? annotationStore.annotationsByRecipe(currentRecipe.value._id).length : 0,
 )
+const cookbooksContainingRecipe = ref<Notebook[]>([])
 
 const displayIngredients = computed(() => {
-  // Use local state if available, otherwise fall back to recipe store
-  if (localIngredients.value.length > 0) {
-    return localIngredients.value
+  // Use draft if available (for preview)
+  if (currentDraft.value) {
+    return currentDraft.value.ingredients
   }
-
-  console.log('🔍 displayIngredients - currentRecipe:', currentRecipe.value)
-  console.log('🔍 displayIngredients - latestVersion:', latestVersion.value)
-
-  if (latestVersion.value) {
-    console.log(
-      '🔍 displayIngredients - using latestVersion ingredients:',
-      latestVersion.value.ingredients,
-    )
-    return latestVersion.value.ingredients
-  }
-
-  const recipeIngredients = currentRecipe.value?.ingredients || []
-  console.log('🔍 displayIngredients - using recipe ingredients:', recipeIngredients)
-  return recipeIngredients
+  return currentRecipe.value?.ingredients || []
 })
 
 const displaySteps = computed(() => {
-  // Use local state if available, otherwise fall back to recipe store
-  if (localSteps.value.length > 0) {
-    return localSteps.value
+  // Use draft if available (for preview)
+  if (currentDraft.value) {
+    return currentDraft.value.steps
   }
-
-  console.log('🔍 displaySteps - currentRecipe:', currentRecipe.value)
-  console.log('🔍 displaySteps - latestVersion:', latestVersion.value)
-
-  if (latestVersion.value) {
-    console.log('🔍 displaySteps - using latestVersion steps:', latestVersion.value.steps)
-    return latestVersion.value.steps
-  }
-
-  const recipeSteps = currentRecipe.value?.steps || []
-  console.log('🔍 displaySteps - using recipe steps:', recipeSteps)
-  return recipeSteps
+  return currentRecipe.value?.steps || []
 })
 
 const availableNotebooks = computed(() => {
@@ -528,6 +507,20 @@ const availableNotebooks = computed(() => {
 
 const isOwnRecipe = computed(() => {
   return currentRecipe.value?.owner === authStore.userId
+})
+
+// Base ingredients/steps for comparison (what was there before the draft)
+const baseIngredients = computed(() => {
+  return currentRecipe.value?.ingredients || []
+})
+
+const baseSteps = computed(() => {
+  return currentRecipe.value?.steps || []
+})
+
+const isInCurrentCookbook = computed(() => {
+  if (!currentRecipe.value || !currentNotebook.value) return false
+  return currentNotebook.value.recipes.includes(currentRecipe.value._id)
 })
 
 function isRecipeInNotebook(notebook: Notebook): boolean {
@@ -551,7 +544,7 @@ async function forkRecipe() {
   if (!currentRecipe.value || !authStore.userId || isOwnRecipe.value) return
 
   try {
-    // Create a new recipe based on the current one
+    // Create a new recipe based on the current one (fork)
     const forkedRecipe = {
       title: `${currentRecipe.value.title} (Fork)`,
       description: currentRecipe.value.description,
@@ -559,13 +552,14 @@ async function forkRecipe() {
       steps: currentRecipe.value.steps,
       tags: [...(currentRecipe.value.tags || [])],
       owner: authStore.userId,
-      // Don't copy the original recipe's ID, let the API generate a new one
+      forkedFrom: currentRecipe.value._id,
     }
 
     console.log('🍴 Forking recipe:', forkedRecipe)
 
-    // Call the recipe store to create the forked recipe
-    const newRecipeId = await recipeStore.createRecipe(forkedRecipe)
+    // Call the recipe API to create the forked recipe
+    const response = await recipeApi.createRecipe(forkedRecipe)
+    const newRecipeId = (response as { recipe: string }).recipe
 
     console.log('🍴 Recipe forked successfully, new ID:', newRecipeId)
 
@@ -573,11 +567,11 @@ async function forkRecipe() {
     router.push(`/recipe/${newRecipeId}`)
   } catch (error) {
     console.error('Failed to fork recipe:', error)
-    // You could add a toast notification here
+    alert(`Failed to fork recipe: ${error instanceof Error ? error.message : 'Unknown error'}`)
   }
 }
 
-// Initialize local state from recipe data
+// Initialize local state from recipe data (only when entering edit mode)
 function initializeLocalState() {
   if (!currentRecipe.value) return
 
@@ -592,14 +586,183 @@ function initializeLocalState() {
   // Initialize local steps
   localSteps.value = (currentRecipe.value.steps || []).map((step) => ({
     description: step.description || '',
-    duration: step.duration || 0,
     notes: step.notes || '',
   }))
 
   hasUnsavedChanges.value = false
 }
 
+// Draft handling
+function handleDraftReady(draft: VersionDraft) {
+  console.log('✅ Draft received in RecipeView:', draft)
+  currentDraft.value = draft
+  showDraftModal.value = false
+
+  // Exit edit mode so draft preview can be shown immediately
+  // Note: We don't save changes here because the draft is based on the saved recipe
+  if (editMode.value) {
+    editMode.value = false
+    // Clear unsaved changes flag since we're showing the draft preview
+    hasUnsavedChanges.value = false
+  }
+
+  console.log('✅ currentDraft set to:', currentDraft.value)
+}
+
+function handleDraftClose() {
+  showDraftModal.value = false
+}
+
+function discardDraft() {
+  currentDraft.value = null
+}
+
+// Comparison helpers for highlighting changes
+function getIngredientChangeType(index: number): 'added' | 'removed' | 'modified' | 'unchanged' {
+  if (!currentDraft.value) return 'unchanged'
+  const draftIng = currentDraft.value.ingredients[index]
+  const baseIng = baseIngredients.value[index]
+
+  if (!baseIng) return 'added'
+  if (!draftIng) return 'removed'
+
+  // Simple check for modifications
+  if (
+    draftIng.name !== baseIng.name ||
+    draftIng.quantity !== baseIng.quantity ||
+    draftIng.unit !== baseIng.unit
+  ) {
+    return 'modified'
+  }
+
+  return 'unchanged'
+}
+
+function getIngredientChangeClass(index: number): string {
+  const type = getIngredientChangeType(index)
+  return `change-${type}`
+}
+
+function getStepChangeType(index: number): 'added' | 'removed' | 'modified' | 'unchanged' {
+  if (!currentDraft.value) return 'unchanged'
+  const draftStep = currentDraft.value.steps[index]
+  const baseStep = baseSteps.value[index]
+
+  if (!baseStep) return 'added'
+  if (!draftStep) return 'removed'
+
+  // Simple check for modifications
+  if (draftStep.description !== baseStep.description) {
+    return 'modified'
+  }
+
+  return 'unchanged'
+}
+
+function getStepChangeClass(index: number): string {
+  const type = getStepChangeType(index)
+  return `change-${type}`
+}
+
+function getDraftConfidenceClass(): string {
+  if (!currentDraft.value) return ''
+  const conf = currentDraft.value.confidence
+  if (conf >= 0.8) return 'high'
+  if (conf >= 0.5) return 'medium'
+  return 'low'
+}
+
+async function acceptDraft() {
+  if (!currentDraft.value) {
+    console.error('❌ No draft to accept')
+    return
+  }
+
+  if (!authStore.userId) {
+    console.error('❌ User must be logged in')
+    return
+  }
+
+  if (!currentRecipe.value?._id) {
+    console.error('❌ No recipe ID found')
+    return
+  }
+
+  console.log('✅ Accepting draft:', {
+    recipeId: currentRecipe.value._id,
+    userId: authStore.userId,
+  })
+
+  isAcceptingDraft.value = true
+
+  try {
+    // Apply the draft to the original recipe
+    await recipeApi.applyDraft(authStore.userId, currentRecipe.value._id, {
+      ingredients: currentDraft.value.ingredients,
+      steps: currentDraft.value.steps,
+      notes: currentDraft.value.notes,
+    })
+
+    console.log('✅ Draft applied successfully')
+
+    // Clear draft
+    currentDraft.value = null
+
+    // Refresh recipe data
+    await recipeStore.loadRecipeById(currentRecipe.value._id)
+
+    console.log('✅ Recipe data refreshed')
+
+    // If in edit mode, update local state with the refreshed recipe data
+    if (editMode.value && currentRecipe.value) {
+      localIngredients.value = (currentRecipe.value.ingredients || []).map((ing) => ({
+        name: ing.name || '',
+        quantity: ing.quantity || '',
+        unit: ing.unit || '',
+        notes: ing.notes || '',
+      }))
+      localSteps.value = (currentRecipe.value.steps || []).map((step) => ({
+        description: step.description || '',
+        notes: step.notes || '',
+      }))
+      hasUnsavedChanges.value = false
+    }
+  } catch (err) {
+    console.error('❌ Failed to apply draft:', err)
+    alert(`Failed to apply draft: ${err instanceof Error ? err.message : 'Unknown error'}`)
+  } finally {
+    isAcceptingDraft.value = false
+  }
+}
+
 // Inline editing functions
+function handleAnnotationClick(
+  targetKind: 'Ingredient' | 'Step',
+  targetIndex: number,
+  event: MouseEvent,
+) {
+  // Stop propagation to prevent backdrop from closing when clicking on ingredient/step
+  event.stopPropagation()
+
+  // Store click position for overlay positioning
+  annotationPosition.value = {
+    x: event.clientX,
+    y: event.clientY,
+  }
+
+  // Set active annotation to show the form immediately
+  activeAnnotation.value = {
+    targetKind,
+    targetIndex,
+    showForm: true, // Open comment form immediately on click
+  }
+}
+
+function closeAnnotation() {
+  activeAnnotation.value = null
+  annotationPosition.value = null
+}
+
 function toggleEditMode() {
   if (!isOwnRecipe.value) return
 
@@ -612,6 +775,41 @@ function toggleEditMode() {
   }
 
   editMode.value = !editMode.value
+
+  // If entering edit mode, expand all textareas after render
+  if (editMode.value) {
+    nextTick(() => {
+      // Expand all ingredient name and note textareas
+      const ingredientNames = document.querySelectorAll('.ingredient-name-input')
+      ingredientNames.forEach((textarea) => {
+        if (textarea instanceof HTMLTextAreaElement) {
+          autoExpandTextarea({ target: textarea } as Event)
+        }
+      })
+
+      const ingredientNotes = document.querySelectorAll('.ingredient-notes-input')
+      ingredientNotes.forEach((textarea) => {
+        if (textarea instanceof HTMLTextAreaElement) {
+          autoExpandTextarea({ target: textarea } as Event)
+        }
+      })
+
+      // Expand all step description and note textareas
+      const stepDescriptions = document.querySelectorAll('.step-description-input')
+      stepDescriptions.forEach((textarea) => {
+        if (textarea instanceof HTMLTextAreaElement) {
+          autoExpandTextarea({ target: textarea } as Event)
+        }
+      })
+
+      const stepNotes = document.querySelectorAll('.step-notes-input')
+      stepNotes.forEach((textarea) => {
+        if (textarea instanceof HTMLTextAreaElement) {
+          autoExpandTextarea({ target: textarea } as Event)
+        }
+      })
+    })
+  }
 }
 
 async function saveAllChanges() {
@@ -731,7 +929,6 @@ function startEditingStep(index: number) {
   const step = localSteps.value[index]
   editingStepValue.value = {
     description: step?.description || '',
-    duration: step?.duration || 0,
     notes: step?.notes || '',
   }
   nextTick(() => {
@@ -754,7 +951,7 @@ function saveStep(index: number) {
 
 function cancelEditStep() {
   editingStep.value = null
-  editingStepValue.value = { description: '', duration: 0, notes: '' }
+  editingStepValue.value = { description: '', notes: '' }
 }
 
 function addNewIngredient() {
@@ -774,18 +971,53 @@ function addNewIngredient() {
   hasUnsavedChanges.value = true
 }
 
+function addIngredientIfComplete(index: number) {
+  const ing = localIngredients.value[index]
+  if (ing?.name && ing?.quantity && index === localIngredients.value.length - 1) {
+    localIngredients.value.push({ name: '', quantity: '', unit: '', notes: '' })
+    hasUnsavedChanges.value = true
+  }
+}
+
+function addStepIfComplete(index: number) {
+  const step = localSteps.value[index]
+  if (step?.description && index === localSteps.value.length - 1) {
+    localSteps.value.push({ description: '', notes: '' })
+    hasUnsavedChanges.value = true
+  }
+}
+
+function autoExpandTextarea(event: Event) {
+  const textarea = event.target as HTMLTextAreaElement
+  if (!textarea) return
+
+  // Reset height to auto to get accurate scrollHeight
+  textarea.style.height = 'auto'
+  textarea.style.overflowY = 'hidden'
+
+  // Calculate minimum height from rows attribute (if present) or CSS min-height, whichever is larger
+  const computedStyle = getComputedStyle(textarea)
+  const lineHeight = parseFloat(computedStyle.lineHeight) || 20
+  const rowsAttr = textarea.getAttribute('rows')
+  const minHeightFromRows = rowsAttr ? lineHeight * parseInt(rowsAttr) : 0
+  const minHeightFromCSS = parseFloat(computedStyle.minHeight) || 0
+  const minHeight = Math.max(minHeightFromRows, minHeightFromCSS)
+
+  // Set height based on scrollHeight, ensuring it shows all content
+  // scrollHeight gives us the full content height including padding
+  const newHeight = Math.max(textarea.scrollHeight, minHeight)
+  textarea.style.height = `${newHeight}px`
+
+  // Ensure no max-height constraint is applied
+  textarea.style.maxHeight = 'none'
+}
+
 function addNewStep() {
   if (!currentRecipe.value || !editMode.value) return
-  const newStep = { description: '', duration: 0, notes: '' }
+  const newStep = { description: '', notes: '' }
 
   // Add to local state immediately
   localSteps.value.push(newStep)
-
-  // Start editing the new step
-  nextTick(() => {
-    const lastIndex = localSteps.value.length - 1
-    startEditingStep(lastIndex)
-  })
 
   // Mark as having unsaved changes
   hasUnsavedChanges.value = true
@@ -933,7 +1165,7 @@ async function getAuthorName(authorId: string | undefined): Promise<string> {
     const fallbackUser = {
       _id: authorId,
       name: `User ${authorId.slice(-4)}`,
-      email: '',
+      username: `user${authorId.slice(-4)}`,
       preferences: {},
     } as User
     userDetailsCache.value.set(authorId, fallbackUser)
@@ -965,6 +1197,22 @@ async function loadAuthorName(): Promise<void> {
   }
 }
 
+async function loadCookbooksContainingRecipe(): Promise<void> {
+  if (!currentRecipe.value) {
+    cookbooksContainingRecipe.value = []
+    return
+  }
+
+  try {
+    const notebooks = await notebookStore.getNotebooksContainingRecipe(currentRecipe.value._id)
+    cookbooksContainingRecipe.value = notebooks
+    console.log('🔍 loadCookbooksContainingRecipe - notebooks containing recipe:', notebooks)
+  } catch (error) {
+    console.error('Failed to load cookbooks containing recipe:', error)
+    cookbooksContainingRecipe.value = []
+  }
+}
+
 async function loadSharedUsers(): Promise<void> {
   if (!currentRecipe.value) return
 
@@ -990,7 +1238,7 @@ async function loadSharedUsers(): Promise<void> {
         return {
           _id: memberId,
           name: `User ${memberId.slice(-4)}`,
-          email: '',
+          username: `user${memberId.slice(-4)}`,
           preferences: {},
         } as User
       }
@@ -1022,26 +1270,50 @@ onMounted(async () => {
   if (recipeId) {
     await Promise.all([
       recipeStore.loadRecipeById(recipeId),
-      versionStore.loadVersionsByRecipe(recipeId),
       annotationStore.loadAnnotationsForRecipe(recipeId),
       notebookStore.loadUserNotebooks(), // Load user notebooks for sharing
     ])
 
-    // Load shared users and author name after recipe is loaded
-    await Promise.all([loadSharedUsers(), loadAuthorName()])
+    // Load fork count
+    if (currentRecipe.value?._id) {
+      try {
+        const response = await recipeApi.getForkCount(currentRecipe.value._id)
+        forkCount.value = (response as { count: number }).count || 0
+      } catch (error) {
+        console.error('Failed to load fork count:', error)
+        forkCount.value = 0
+      }
+    }
 
-    // Initialize local state for smooth editing
-    initializeLocalState()
+    // Restore current notebook if recipe is in a notebook
+    if (!notebookStore.currentNotebook && currentRecipe.value) {
+      const notebooks = await notebookStore.getNotebooksContainingRecipe(currentRecipe.value._id)
+      if (notebooks.length > 0) {
+        // Prefer user's own notebooks over shared ones
+        const ownedNotebook = notebooks.find((nb) => nb.owner === authStore.userId)
+        if (ownedNotebook) {
+          await notebookStore.loadNotebookById(ownedNotebook._id)
+        } else if (notebooks[0]) {
+          // Use the first shared notebook
+          await notebookStore.loadNotebookById(notebooks[0]._id)
+        }
+      }
+    }
+
+    // Load shared users, author name, and cookbooks after recipe is loaded
+    await Promise.all([loadSharedUsers(), loadAuthorName(), loadCookbooksContainingRecipe()])
   }
 })
 </script>
 
 <style scoped>
 .recipe-view {
-  padding: 20px;
-  max-width: 1000px;
-  margin: 0 auto;
+  width: calc(100% + 60px);
+  min-height: calc(100vh - 60px);
+  margin: -30px;
+  padding: 30px;
   position: relative;
+  background: white;
 }
 
 .recipe-header {
@@ -1060,17 +1332,7 @@ onMounted(async () => {
 }
 
 .back-btn {
-  background: #f8f9fa;
-  border: 1px solid #dee2e6;
-  padding: 8px 16px;
-  border-radius: 6px;
-  cursor: pointer;
-  color: #495057;
-  font-size: 14px;
-}
-
-.back-btn:hover {
-  background: #e9ecef;
+  margin-right: 8px;
 }
 
 .separator {
@@ -1079,7 +1341,7 @@ onMounted(async () => {
 }
 
 .cookbook-name {
-  color: #667eea;
+  color: var(--color-primary);
   font-weight: 500;
   font-size: 14px;
 }
@@ -1089,64 +1351,37 @@ onMounted(async () => {
   gap: 10px;
 }
 
-.version-btn,
+.draft-btn,
 .edit-mode-btn,
+.versions-btn,
 .fork-btn,
 .share-btn {
-  background: #f8f9fa;
-  border: 1px solid #dee2e6;
-  padding: 8px 16px;
-  border-radius: 6px;
-  cursor: pointer;
-  font-size: 14px;
-  transition: background-color 0.2s;
+  margin: 0 8px;
 }
 
-.version-btn:hover,
-.edit-mode-btn:hover,
-.fork-btn:hover,
-.share-btn:hover {
-  background: #e9ecef;
-}
-
-.version-btn {
-  background: #e3f2fd;
-  border-color: #1976d2;
-  color: #1976d2;
+.draft-btn {
+  color: var(--brand-indigo-500);
 }
 
 .edit-mode-btn {
-  background: #667eea;
-  color: white;
-  border-color: #667eea;
+  color: var(--brand-indigo-500);
 }
 
 .edit-mode-btn.active {
-  background: #28a745;
-  border-color: #28a745;
-}
-
-.edit-mode-btn.active:hover {
-  background: #218838;
+  color: var(--color-success);
 }
 
 .fork-btn {
-  background: #28a745;
-  color: white;
-  border-color: #28a745;
+  color: var(--color-success);
 }
 
 .fork-btn.disabled {
-  background: #6c757d;
-  color: #adb5bd;
-  border-color: #6c757d;
+  opacity: 0.5;
   cursor: not-allowed;
-  opacity: 0.6;
 }
 
 .fork-btn.disabled:hover {
-  background: #6c757d;
-  color: #adb5bd;
+  text-decoration: none;
 }
 
 .loading {
@@ -1165,23 +1400,75 @@ onMounted(async () => {
 
 .recipe-content {
   background: white;
-  border-radius: 12px;
+  border-radius: 0;
   padding: 30px;
-  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+  box-shadow: none;
 }
 
+.title-row {
+  display: flex;
+  align-items: center;
+  gap: 15px;
+  margin-bottom: 10px;
+  color: var(--brand-orange-500);
+}
+
+.title-row .plain-title-input {
+  flex: 1;
+  margin-bottom: 0;
+  color: var(--brand-orange-500);
+}
+
+.header-actions {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  margin-left: auto;
+}
+
+.plain-title,
 .recipe-info h1 {
-  color: #333;
-  font-size: 32px;
-  margin-bottom: 15px;
-  font-weight: 600;
+  color: var(--brand-orange-500);
+  font-size: 2rem;
+  margin-bottom: 0;
+  font-weight: bold;
 }
 
-.recipe-description {
+/* Plain inputs without borders */
+.plain-title-input,
+.plain-description-input {
+  width: 100%;
+  border: none;
+  outline: none;
+  background: transparent;
+  font-family: inherit;
+}
+
+.plain-title-input {
+  font-size: 2rem;
+  font-weight: bold;
+  padding: 12px 0;
+  margin-bottom: 10px;
+}
+
+.plain-title-input::placeholder {
+  color: var(--brand-orange-500);
+  opacity: 0.6;
+}
+
+.plain-description-input {
+  font-size: 1rem;
+  line-height: 1.5;
+  resize: none;
+  overflow: hidden;
+  min-height: 60px;
+  padding: 8px 0;
+}
+
+.plain-description {
+  font-size: 1rem;
+  line-height: 1.5;
   color: #666;
-  font-size: 18px;
-  margin-bottom: 20px;
-  line-height: 1.6;
 }
 
 .recipe-meta {
@@ -1194,23 +1481,34 @@ onMounted(async () => {
   border-radius: 8px;
 }
 
-.version-info {
+.recipe-author-info {
   display: flex;
-  gap: 15px;
+  align-items: center;
+  gap: 20px;
   font-size: 14px;
+  flex-wrap: wrap;
 }
 
-.version-number {
-  font-weight: 600;
-  color: #667eea;
-}
-
-.version-author {
+.recipe-author {
   color: #666;
 }
 
-.version-date {
+.recipe-date {
   color: #888;
+}
+
+.cookbook-info {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.cookbook-badge {
+  display: inline;
+  font-size: 14px;
+  color: var(--brand-blue-400);
+  font-weight: normal;
 }
 
 .recipe-stats {
@@ -1247,9 +1545,9 @@ onMounted(async () => {
   font-size: 14px;
   color: #666;
   padding: 10px 15px;
-  background: #e8f5e8;
+  background: rgba(232, 245, 232, 0.5);
   border-radius: 6px;
-  border-left: 3px solid #28a745;
+  border-left: 3px solid var(--color-success);
 }
 
 .sharing-label {
@@ -1264,7 +1562,7 @@ onMounted(async () => {
 }
 
 .shared-user {
-  background: #28a745;
+  background: var(--color-success);
   color: white;
   padding: 4px 8px;
   border-radius: 4px;
@@ -1327,18 +1625,8 @@ onMounted(async () => {
 }
 
 .create-notebook-btn {
-  background: #667eea;
-  color: white;
-  border: none;
-  padding: 10px 20px;
-  border-radius: 6px;
-  cursor: pointer;
-  font-size: 14px;
+  color: var(--brand-blue-400);
   margin-top: 10px;
-}
-
-.create-notebook-btn:hover {
-  background: #5a6fd8;
 }
 
 .create-notebook-form {
@@ -1380,12 +1668,13 @@ onMounted(async () => {
 .form-input:focus,
 .form-textarea:focus {
   outline: none;
-  border-color: #667eea;
+  border-color: var(--brand-indigo-500);
   box-shadow: 0 0 0 2px rgba(102, 126, 234, 0.2);
 }
 
 .form-textarea {
-  resize: vertical;
+  resize: none;
+  overflow: hidden;
   min-height: 80px;
 }
 
@@ -1397,36 +1686,21 @@ onMounted(async () => {
 }
 
 .cancel-btn {
-  background: #6c757d;
-  color: white;
-  border: none;
-  padding: 10px 20px;
-  border-radius: 6px;
-  cursor: pointer;
-  font-size: 14px;
-}
-
-.cancel-btn:hover {
-  background: #5a6268;
+  color: #6c757d;
+  margin-right: 8px;
 }
 
 .create-btn {
-  background: #28a745;
-  color: white;
-  border: none;
-  padding: 10px 20px;
-  border-radius: 6px;
-  cursor: pointer;
-  font-size: 14px;
-}
-
-.create-btn:hover:not(:disabled) {
-  background: #218838;
+  color: var(--brand-blue-400);
 }
 
 .create-btn:disabled {
-  background: #ccc;
+  opacity: 0.5;
   cursor: not-allowed;
+}
+
+.create-btn:disabled:hover {
+  text-decoration: none;
 }
 
 .notebooks-list {
@@ -1474,22 +1748,17 @@ onMounted(async () => {
 }
 
 .share-to-notebook-btn {
-  background: #667eea;
-  color: white;
-  border: none;
-  padding: 8px 16px;
-  border-radius: 6px;
-  cursor: pointer;
-  font-size: 14px;
-}
-
-.share-to-notebook-btn:hover:not(:disabled) {
-  background: #5a6fd8;
+  color: var(--brand-indigo-500);
+  margin-left: 8px;
 }
 
 .share-to-notebook-btn:disabled {
-  background: #ccc;
+  opacity: 0.5;
   cursor: not-allowed;
+}
+
+.share-to-notebook-btn:disabled:hover {
+  text-decoration: none;
 }
 
 .modal-overlay {
@@ -1502,9 +1771,28 @@ onMounted(async () => {
   z-index: 1001;
 }
 
+.annotation-overlay-backdrop {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: transparent;
+  z-index: 999;
+}
+
 .ingredients-section,
 .steps-section {
   margin-bottom: 40px;
+  min-width: 0; /* Allow grid items to shrink below content size */
+}
+
+/* Content grid for side by side layout */
+.content-grid {
+  display: grid;
+  grid-template-columns: 1fr 2fr; /* 1:2 ratio (ingredients:instructions) */
+  gap: 40px;
+  width: 100%;
 }
 
 .ingredients-section h2,
@@ -1513,78 +1801,90 @@ onMounted(async () => {
   font-size: 24px;
   margin-bottom: 20px;
   font-weight: 600;
-  border-bottom: 2px solid #667eea;
+  border-bottom: 2px solid var(--brand-blue-400);
   padding-bottom: 10px;
 }
 
 .ingredients-list {
   display: flex;
   flex-direction: column;
-  gap: 15px;
+  gap: 0;
 }
 
 .ingredient-item {
   display: flex;
-  justify-content: space-between;
   align-items: flex-start;
-  padding: 15px;
-  background: #f8f9fa;
-  border-radius: 8px;
-  border-left: 4px solid #667eea;
+  gap: 10px;
+  padding: 8px 0;
+  border-bottom: 1px solid #e9ecef;
+  user-select: none;
+  cursor: pointer;
+  min-width: 0;
 }
 
 .ingredient-content {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 8px;
   flex: 1;
+  flex-wrap: wrap;
+  min-width: 0;
 }
 
 .ingredient-quantity {
   font-weight: 600;
-  color: #667eea;
+  color: var(--color-primary);
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+  min-width: 0;
 }
 
 .ingredient-unit {
   color: #666;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+  min-width: 0;
 }
 
 .ingredient-name {
   font-weight: 500;
   color: #333;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+  min-width: 0;
 }
 
 .ingredient-notes {
   color: #888;
   font-style: italic;
+  word-break: break-word;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+  min-width: 0;
 }
 
 .steps-list {
   display: flex;
   flex-direction: column;
-  gap: 25px;
+  gap: 0;
 }
 
 .step-item {
   display: flex;
-  gap: 15px;
-  padding: 20px;
-  background: #f8f9fa;
-  border-radius: 8px;
-  border-left: 4px solid #28a745;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 0;
+  border-bottom: 1px solid #e9ecef;
+  user-select: none;
+  cursor: pointer;
 }
 
 .step-number {
-  background: #28a745;
-  color: white;
-  width: 30px;
-  height: 30px;
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  color: var(--brand-orange-500);
   font-weight: 600;
+  font-size: 16px;
   flex-shrink: 0;
+  margin-top: 2px;
 }
 
 .step-content {
@@ -1638,10 +1938,7 @@ onMounted(async () => {
 }
 
 .close-btn {
-  background: none;
-  border: none;
   font-size: 24px;
-  cursor: pointer;
   color: #666;
 }
 
@@ -1662,8 +1959,33 @@ onMounted(async () => {
     align-items: stretch;
   }
 
+  .title-row {
+    flex-wrap: wrap;
+  }
+
+  .header-actions {
+    margin-left: 0;
+  }
+
   .recipe-actions {
     justify-content: center;
+  }
+
+  .content-grid {
+    grid-template-columns: 1fr;
+    gap: 30px;
+  }
+
+  .ingredient-item {
+    flex-wrap: wrap;
+  }
+
+  .step-item {
+    flex-wrap: wrap;
+  }
+
+  .step-number {
+    align-self: flex-start;
   }
 
   .recipe-meta {
@@ -1672,7 +1994,7 @@ onMounted(async () => {
     align-items: flex-start;
   }
 
-  .version-info {
+  .recipe-author-info {
     flex-direction: column;
     gap: 5px;
   }
@@ -1726,17 +2048,8 @@ onMounted(async () => {
 }
 
 .cancel-edit-btn {
-  background: #6c757d;
-  color: white;
-  border: none;
-  padding: 8px 16px;
-  border-radius: 4px;
-  cursor: pointer;
-  font-size: 14px;
-}
-
-.cancel-edit-btn:hover {
-  background: #5a6268;
+  color: #6c757d;
+  margin-right: 8px;
 }
 
 .recipe-edit-form {
@@ -1769,12 +2082,13 @@ onMounted(async () => {
 .form-input:focus,
 .form-textarea:focus {
   outline: none;
-  border-color: #667eea;
+  border-color: var(--brand-indigo-500);
   box-shadow: 0 0 0 2px rgba(102, 126, 234, 0.2);
 }
 
 .form-textarea {
-  resize: vertical;
+  resize: none;
+  overflow: hidden;
   min-height: 60px;
 }
 
@@ -1805,7 +2119,7 @@ onMounted(async () => {
 }
 
 .step-number {
-  background: #667eea;
+  background: var(--brand-indigo-500);
   color: white;
   width: 24px;
   height: 24px;
@@ -1820,37 +2134,18 @@ onMounted(async () => {
 }
 
 .remove-btn {
-  background: #dc3545;
-  color: white;
-  border: none;
-  width: 24px;
-  height: 24px;
-  border-radius: 50%;
-  cursor: pointer;
-  font-size: 16px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-}
-
-.remove-btn:hover {
-  background: #c82333;
+  color: var(--color-danger);
+  width: auto;
+  height: auto;
+  padding: 0;
+  margin: 0 8px;
 }
 
 .add-btn {
-  background: #28a745;
-  color: white;
-  border: none;
-  padding: 10px 16px;
-  border-radius: 4px;
-  cursor: pointer;
-  font-size: 14px;
+  color: var(--color-success);
+  padding: 0;
+  margin-top: 12px;
   align-self: flex-start;
-}
-
-.add-btn:hover {
-  background: #218838;
 }
 
 .form-actions {
@@ -1861,38 +2156,17 @@ onMounted(async () => {
   border-top: 1px solid #dee2e6;
 }
 
-.cancel-btn {
-  background: #6c757d;
-  color: white;
-  border: none;
-  padding: 10px 20px;
-  border-radius: 4px;
-  cursor: pointer;
-  font-size: 14px;
-}
-
-.cancel-btn:hover {
-  background: #5a6268;
-}
-
 .save-btn {
-  background: #667eea;
-  color: white;
-  border: none;
-  padding: 10px 20px;
-  border-radius: 4px;
-  cursor: pointer;
-  font-size: 14px;
-}
-
-.save-btn:hover:not(:disabled) {
-  background: #5a6fd8;
+  color: var(--brand-blue-400);
 }
 
 .save-btn:disabled {
-  background: #6c757d;
+  opacity: 0.5;
   cursor: not-allowed;
-  opacity: 0.6;
+}
+
+.save-btn:disabled:hover {
+  text-decoration: none;
 }
 
 /* Inline Editing Styles */
@@ -1930,112 +2204,138 @@ onMounted(async () => {
   font-size: 12px;
 }
 
-.editable-input,
-.editable-textarea {
-  width: 100%;
-  padding: 8px 12px;
-  border: 2px solid #667eea;
-  border-radius: 6px;
-  font-size: inherit;
+/* Plain inputs for ingredients and steps */
+.plain-input,
+.plain-textarea {
+  border: none;
+  outline: none;
+  background: transparent;
   font-family: inherit;
-  background: white;
-  box-shadow: 0 2px 8px rgba(102, 126, 234, 0.2);
+  padding: 4px 0;
+  font-size: 16px;
 }
 
-.editable-input:focus,
-.editable-textarea:focus {
+.plain-textarea {
+  resize: none;
+  overflow: hidden;
+  overflow-y: hidden;
+  max-height: none !important;
+  height: auto;
+  box-sizing: border-box;
+}
+
+.plain-input::placeholder,
+.plain-textarea::placeholder {
+  color: #999;
+  font-style: italic;
+}
+
+.ingredient-notes-input,
+.step-notes-input {
+  font-size: 14px;
+}
+
+.editable-input,
+.editable-textarea {
+  border: none;
   outline: none;
-  border-color: #5a6fd8;
-  box-shadow: 0 2px 12px rgba(102, 126, 234, 0.3);
+  background: transparent;
+  font-family: inherit;
+  padding: 4px 0;
+  font-size: 16px;
 }
 
 .title-input {
   font-size: 2rem;
   font-weight: bold;
-  padding: 12px 16px;
+  padding: 12px 0;
 }
 
 .description-input {
   font-size: 1rem;
   line-height: 1.5;
-  resize: vertical;
+  resize: none;
+  overflow: hidden;
   min-height: 60px;
 }
 
 .ingredient-edit-form,
 .step-edit-form {
   display: flex;
-  gap: 8px;
+  gap: 10px;
   align-items: center;
-  padding: 8px;
-  background: rgba(102, 126, 234, 0.05);
-  border-radius: 6px;
-  border: 2px solid #667eea;
+  flex-wrap: wrap;
 }
 
-.ingredient-name-input {
-  flex: 2;
+.ingredient-quantity-input {
+  flex: 1 1 0%; /* 1/8 ratio (5/40) */
+  min-width: 0;
   font-weight: 500;
 }
 
-.ingredient-quantity-input,
 .ingredient-unit-input {
-  flex: 1;
+  flex: 1 0%; /* 1/5 ratio (8/40) */
+  min-width: 0;
+  font-weight: 500;
+}
+
+.ingredient-name-input {
+  flex: 4 1 0%; /* 1/4 ratio (10/40) */
+  min-width: 0;
+  min-height: 1.5em;
+  max-height: none !important;
+  height: auto;
+  font-weight: 500;
 }
 
 .ingredient-notes-input {
-  flex: 1.5;
+  flex: 5 1 0%;
+  min-width: 0;
+  min-height: 1.5em;
+  max-height: none !important;
+  height: auto;
 }
 
 .step-description-input {
-  flex: 2;
+  flex: 1 1 0%;
+  min-width: 0;
+  min-height: 1.5em;
+  max-height: none !important;
+  height: auto;
   font-size: 1rem;
   line-height: 1.4;
 }
 
-.step-duration-input,
+.step-duration-input {
+  flex: 1 1 0%;
+  min-width: 0;
+}
+
 .step-notes-input {
-  flex: 1;
+  flex: 0.6 1 0%;
+  min-width: 0;
+  min-height: 1.5em;
+  max-height: none !important;
+  height: auto;
 }
 
 .remove-ingredient-btn,
 .remove-step-btn {
-  background: #dc3545;
-  color: white;
-  border: none;
-  width: 24px;
-  height: 24px;
-  border-radius: 50%;
-  cursor: pointer;
-  font-size: 16px;
+  color: var(--color-danger);
+  font-size: 20px;
   display: flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-}
-
-.remove-ingredient-btn:hover,
-.remove-step-btn:hover {
-  background: #c82333;
+  padding: 0;
+  margin: 0 4px;
 }
 
 .add-ingredient-btn,
 .add-step-btn {
-  background: #28a745;
-  color: white;
-  border: none;
-  padding: 12px 20px;
-  border-radius: 6px;
-  cursor: pointer;
-  font-size: 14px;
-  font-weight: 500;
+  color: var(--color-success);
+  padding: 0;
   margin-top: 12px;
-  transition: background-color 0.2s;
-}
-
-.add-ingredient-btn:hover,
-.add-step-btn:hover {
-  background: #218838;
 }
 
 .add-ingredient-placeholder,
@@ -2053,8 +2353,8 @@ onMounted(async () => {
 .add-ingredient-placeholder:hover,
 .add-step-placeholder:hover {
   background: #e9ecef;
-  border-color: #667eea;
-  color: #667eea;
+  border-color: var(--brand-indigo-500);
+  color: var(--brand-indigo-500);
 }
 
 .empty-state {
@@ -2072,7 +2372,7 @@ onMounted(async () => {
 
 .placeholder:hover {
   background-color: rgba(102, 126, 234, 0.1);
-  color: #667eea;
+  color: var(--brand-indigo-500);
 }
 
 /* Save indicator styles */
@@ -2083,16 +2383,16 @@ onMounted(async () => {
 }
 
 .saving-indicator {
-  color: #667eea;
+  color: var(--brand-blue-400);
   animation: pulse 1.5s ease-in-out infinite;
 }
 
 .unsaved-indicator {
-  color: #ffc107;
+  color: var(--brand-orange-500);
 }
 
 .saved-indicator {
-  color: #28a745;
+  color: #6c757d;
 }
 
 @keyframes pulse {
@@ -2103,5 +2403,188 @@ onMounted(async () => {
   50% {
     opacity: 0.6;
   }
+}
+
+/* Change highlighting styles for draft versions */
+.ingredient-item.change-added,
+.step-item.change-added {
+  background: #d4edda;
+  padding-left: 10px;
+  margin-left: -10px;
+  border-left: 4px solid #28a745;
+}
+
+.ingredient-item.change-removed,
+.step-item.change-removed {
+  background: #f8d7da;
+  padding-left: 10px;
+  margin-left: -10px;
+  border-left: 4px solid #dc3545;
+  text-decoration: line-through;
+  opacity: 0.6;
+}
+
+.ingredient-item.change-modified,
+.step-item.change-modified {
+  background: #fff3cd;
+  padding-left: 10px;
+  margin-left: -10px;
+  border-left: 4px solid #ffc107;
+}
+
+.change-badge {
+  font-weight: bold;
+  font-size: 18px;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.change-badge.added {
+  background: #28a745;
+  color: white;
+}
+
+.change-badge.removed {
+  background: #dc3545;
+  color: white;
+}
+
+.change-badge.modified {
+  background: #ffc107;
+  color: #856404;
+}
+
+/* Draft Banner Styles */
+.draft-banner {
+  margin-bottom: 30px;
+  padding: 20px;
+  background: linear-gradient(135deg, #e7f3ff 0%, #d1ecf1 100%);
+  border: 2px solid var(--brand-blue-400);
+  border-radius: 12px;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+}
+
+.draft-banner-content {
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+  margin-bottom: 15px;
+}
+
+.draft-version-input {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px;
+  background: rgba(255, 255, 255, 0.7);
+  border-radius: 8px;
+  border: 1px solid rgba(88, 146, 168, 0.3);
+}
+
+.draft-version-input label {
+  font-weight: 600;
+  color: #333;
+  font-size: 14px;
+  white-space: nowrap;
+}
+
+.version-num-input {
+  padding: 8px 12px;
+  border: 2px solid #dee2e6;
+  border-radius: 6px;
+  font-size: 14px;
+  width: 150px;
+  font-weight: 500;
+}
+
+.version-num-input:focus {
+  outline: none;
+  border-color: var(--brand-blue-400);
+  box-shadow: 0 0 0 3px rgba(88, 146, 168, 0.1);
+}
+
+.base-version-hint {
+  font-size: 12px;
+  color: #666;
+  font-style: italic;
+  white-space: nowrap;
+}
+
+.draft-info {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+}
+
+.draft-label {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--brand-blue-400);
+}
+
+.draft-confidence {
+  padding: 6px 12px;
+  border-radius: 20px;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.draft-confidence.high {
+  background: #d4edda;
+  color: #155724;
+}
+
+.draft-confidence.medium {
+  background: #fff3cd;
+  color: #856404;
+}
+
+.draft-confidence.low {
+  background: #f8d7da;
+  color: #721c24;
+}
+
+.draft-actions {
+  display: flex;
+  gap: 10px;
+}
+
+.discard-draft-btn,
+.edit-draft-btn,
+.accept-draft-btn {
+  margin: 0 8px;
+}
+
+.discard-draft-btn {
+  color: #6c757d;
+}
+
+.edit-draft-btn {
+  color: var(--brand-orange-500);
+}
+
+.accept-draft-btn {
+  color: var(--color-success);
+}
+
+.accept-draft-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.accept-draft-btn:disabled:hover {
+  text-decoration: none;
+}
+
+.draft-banner .draft-notes {
+  padding: 15px;
+  background: rgba(255, 255, 255, 0.7);
+  border-radius: 8px;
+  color: #004085;
 }
 </style>

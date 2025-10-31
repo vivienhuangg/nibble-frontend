@@ -5,25 +5,25 @@ export type ID = string;
 export interface User {
 	_id: ID;
 	name: string;
-	email: string;
+	username: string;
 	preferences: Record<string, unknown>;
 }
 
 export interface UserRegistration {
 	name: string;
-	email: string;
+	username: string;
 	password: string;
 }
 
 export interface UserLogin {
-	email: string;
+	username: string;
 	password: string;
 }
 
 export interface UserUpdate {
 	user: ID;
 	newName?: string;
-	newEmail?: string;
+	newUsername?: string;
 	newPreferences?: Record<string, unknown>;
 }
 
@@ -49,6 +49,7 @@ export interface Recipe {
 	ingredients: Ingredient[];
 	steps: Step[];
 	tags: string[];
+	forkedFrom?: ID;
 	created: string; // ISO 8601
 	updated: string; // ISO 8601
 }
@@ -59,6 +60,7 @@ export interface RecipeCreate {
 	ingredients: Ingredient[];
 	steps: Step[];
 	description?: string;
+	forkedFrom?: ID;
 }
 
 export interface RecipeUpdate {

@@ -17,14 +17,14 @@
         </div>
 
         <div class="form-group">
-          <label for="email">Email</label>
+          <label for="username">Username</label>
           <input
-            id="email"
-            v-model="form.email"
-            type="email"
+            id="username"
+            v-model="form.username"
+            type="text"
             required
             :disabled="isLoading"
-            placeholder="Enter your email"
+            placeholder="Enter your username"
           />
         </div>
 
@@ -75,7 +75,7 @@ const error = computed(() => authStore.error)
 
 const form = reactive({
   name: '',
-  email: '',
+  username: '',
   password: '',
 })
 
@@ -84,7 +84,7 @@ function toggleMode() {
   authStore.clearError()
   // Clear form
   form.name = ''
-  form.email = ''
+  form.username = ''
   form.password = ''
 }
 
@@ -95,11 +95,11 @@ async function handleSubmit() {
 
     if (isLogin.value) {
       console.log('🔍 AuthView - calling login')
-      await authStore.login(form.email, form.password)
+      await authStore.login(form.username, form.password)
       console.log('🔍 AuthView - login completed successfully')
     } else {
       console.log('🔍 AuthView - calling register')
-      await authStore.register(form.name, form.email, form.password)
+      await authStore.register(form.name, form.username, form.password)
       console.log('🔍 AuthView - register completed successfully')
     }
 
@@ -119,7 +119,7 @@ async function handleSubmit() {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: linear-gradient(135deg, var(--brand-indigo-500) 0%, var(--brand-blue-400) 100%);
   padding: 20px;
 }
 
@@ -168,7 +168,7 @@ input {
 
 input:focus {
   outline: none;
-  border-color: #667eea;
+  border-color: var(--color-primary);
 }
 
 input:disabled {
@@ -186,24 +186,16 @@ input:disabled {
 }
 
 .submit-btn {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  color: white;
-  border: none;
-  padding: 14px;
-  border-radius: 8px;
-  font-size: 16px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: opacity 0.2s;
-}
-
-.submit-btn:hover:not(:disabled) {
-  opacity: 0.9;
+  color: var(--brand-blue-400);
 }
 
 .submit-btn:disabled {
-  opacity: 0.6;
+  opacity: 0.5;
   cursor: not-allowed;
+}
+
+.submit-btn:disabled:hover {
+  text-decoration: none;
 }
 
 .auth-switch {
@@ -217,21 +209,15 @@ input:disabled {
 }
 
 .switch-btn {
-  background: none;
-  border: none;
-  color: #667eea;
-  font-weight: 600;
-  cursor: pointer;
-  text-decoration: underline;
-  font-size: 14px;
-}
-
-.switch-btn:hover:not(:disabled) {
-  color: #764ba2;
+  color: var(--brand-blue-400);
 }
 
 .switch-btn:disabled {
   opacity: 0.6;
   cursor: not-allowed;
+}
+
+.switch-btn:disabled:hover {
+  text-decoration: none;
 }
 </style>

@@ -2,19 +2,18 @@
   <div class="cookbook-view">
     <div class="cookbook-header">
       <div class="cookbook-info">
-        <h1>{{ currentNotebook?.title || 'Select a Cookbook' }}</h1>
+        <h1>{{ currentNotebook?.title || ' ' }}</h1>
         <p v-if="currentNotebook?.description" class="cookbook-description">
           {{ currentNotebook.description }}
         </p>
         <div class="cookbook-meta">
           <span>{{ recipes.length }} recipes</span>
           <span>{{ currentNotebook?.members?.length || 0 }} members</span>
-          <span v-if="currentNotebook">Shared with: APT 511</span>
         </div>
       </div>
 
       <div class="cookbook-actions">
-        <button @click="showAddRecipe = true" class="add-recipe-btn">+ Add Recipe</button>
+        <button @click="createRecipe" class="add-recipe-btn">Create Recipe</button>
         <button @click="showShareModal = true" class="share-btn">📤 Share</button>
       </div>
     </div>
@@ -59,92 +58,48 @@
         v-for="recipe in filteredRecipes"
         :key="recipe._id"
         :recipe="recipe"
-        :version-info="getVersionInfo(recipe._id)"
         :fork-count="getForkCount(recipe._id)"
-        :annotation-count="getAnnotationCount(recipe._id)"
-        :is-favorited="isRecipeFavorited(recipe._id)"
-        @favorite-toggled="handleFavoriteToggle"
         @share-requested="handleShareRequest"
       />
-    </div>
-
-    <!-- Add Recipe Modal -->
-    <div v-if="showAddRecipe" class="modal-overlay" @click="closeAddRecipe">
-      <div class="modal" @click.stop>
-        <h3>Add Recipe to Cookbook</h3>
-        <div class="recipe-selection">
-          <div v-if="availableRecipes.length === 0" class="no-recipes">
-            <p>No recipes available to add. Create a recipe first!</p>
-            <button @click="goToCreateRecipe" class="create-recipe-btn">Create Recipe</button>
-          </div>
-          <div v-else class="recipe-list">
-            <div
-              v-for="recipe in availableRecipes"
-              :key="recipe._id"
-              class="recipe-option"
-              @click="addRecipeToCookbook(recipe)"
-            >
-              <h4>{{ recipe.title }}</h4>
-              <p>{{ recipe.description }}</p>
-              <div class="recipe-tags">
-                <span v-for="tag in recipe.tags" :key="tag" class="tag">
-                  {{ tag }}
-                </span>
-              </div>
-            </div>
-          </div>
-        </div>
-        <div class="form-actions">
-          <button @click="closeAddRecipe" class="cancel-btn">Cancel</button>
-        </div>
-      </div>
     </div>
 
     <!-- Share Modal -->
     <div v-if="showShareModal" class="modal-overlay" @click="closeShareModal">
       <div class="modal" @click.stop>
-        <h3>Share Cookbook</h3>
-        <div class="share-content">
-          <p>Share "{{ currentNotebook?.title }}" with others</p>
+        <h3>Share "{{ currentNotebook?.title }}"</h3>
 
-          <!-- Email Invitation Form -->
-          <div class="email-invitation-form">
-            <h4>Invite by Email</h4>
-            <div class="form-group">
-              <label for="inviteEmail">Email Address</label>
-              <input
-                v-model="inviteEmail"
-                type="email"
-                id="inviteEmail"
-                placeholder="Enter email address"
-                class="email-input"
-                :disabled="isInviting"
-              />
+        <div class="invite-section">
+          <input
+            v-model="inviteUsername"
+            type="text"
+            id="inviteUsername"
+            placeholder="Enter username"
+            class="email-input"
+            :disabled="isInviting"
+          />
+        </div>
+
+        <div v-if="otherMembers.length > 0">
+          <h4><b>People with access</b></h4>
+          <div class="people-list">
+            <div class="person" v-for="member in otherMembers" :key="member.id">
+              <span>{{ member.username }} ({{ member.name }})</span>
             </div>
-            <div class="form-group">
-              <label for="inviteMessage">Message (Optional)</label>
-              <textarea
-                v-model="inviteMessage"
-                id="inviteMessage"
-                placeholder="Add a personal message..."
-                class="message-input"
-                rows="3"
-                :disabled="isInviting"
-              ></textarea>
-            </div>
-            <button
-              @click="sendEmailInvitation"
-              class="send-invite-btn"
-              :disabled="!inviteEmail || isInviting"
-            >
-              {{ isInviting ? 'Sending...' : 'Send Invitation' }}
-            </button>
-            <div v-if="inviteError" class="error-message">{{ inviteError }}</div>
-            <div v-if="inviteSuccess" class="success-message">{{ inviteSuccess }}</div>
           </div>
         </div>
+
+        <div v-if="inviteError" class="error-message">{{ inviteError }}</div>
+        <div v-if="inviteSuccess" class="success-message">{{ inviteSuccess }}</div>
+
         <div class="form-actions">
           <button @click="closeShareModal" class="cancel-btn">Close</button>
+          <button
+            @click="sendUsernameInvitation"
+            class="send-invite-btn"
+            :disabled="!inviteUsername || isInviting"
+          >
+            {{ isInviting ? 'Sending...' : 'Invite' }}
+          </button>
         </div>
       </div>
     </div>
@@ -177,15 +132,22 @@ const authStore = useAuthStore()
 
 const searchQuery = ref('')
 const selectedTags = ref<string[]>([])
-const showAddRecipe = ref(false)
 const showShareModal = ref(false)
 
 // Email invitation state
-const inviteEmail = ref('')
-const inviteMessage = ref('')
+const inviteUsername = ref('')
 const isInviting = ref(false)
 const inviteError = ref('')
 const inviteSuccess = ref('')
+
+// Member details state
+const memberDetails = ref<Array<{ id: string; username: string; name: string }>>([])
+
+// Filtered members excluding the current user
+const otherMembers = computed(() => {
+  if (!authStore.userId) return memberDetails.value
+  return memberDetails.value.filter((member) => member.id !== authStore.userId)
+})
 
 const isLoading = computed(
   () => notebookStore.isLoading || recipeStore.isLoading || versionStore.isLoading,
@@ -214,12 +176,6 @@ watch(
   },
   { immediate: true },
 )
-
-const availableRecipes = computed(() => {
-  // Recipes that are not already in this cookbook
-  const cookbookRecipeIds = currentNotebook.value?.recipes || []
-  return recipeStore.userRecipes.filter((recipe) => !cookbookRecipeIds.includes(recipe._id))
-})
 
 const availableTags = computed(() => {
   const allTags = new Set<string>()
@@ -262,86 +218,81 @@ function toggleTagFilter(tag: string) {
   }
 }
 
-function getVersionInfo(recipeId: string) {
-  // In a real app, you'd get the latest version for this recipe
-  return null
+function getForkCount(recipeId: string): number {
+  // Fork count = number of versions for this recipe
+  const versions = versionStore.versionsByRecipe(recipeId)
+  return versions.length
 }
 
-function getForkCount(recipeId: string) {
-  // In a real app, you'd count versions for this recipe
-  return Math.floor(Math.random() * 5) // Placeholder
-}
-
-function getAnnotationCount(recipeId: string) {
-  // In a real app, you'd count annotations for this recipe
-  return Math.floor(Math.random() * 3) // Placeholder
-}
-
-function isRecipeFavorited(recipeId: string) {
-  // In a real app, you'd check user's favorites
-  return Math.random() > 0.7 // Placeholder
-}
-
-function handleFavoriteToggle(recipeId: string) {
-  console.log('Toggle favorite for recipe:', recipeId)
-  // In a real app, you'd update the favorite status
-}
+// Removed placeholder counts/favorites; card will not display them without real data
 
 function handleShareRequest(recipe: Recipe) {
   console.log('Share recipe:', recipe)
   // In a real app, you'd open a share modal
 }
 
-function closeAddRecipe() {
-  showAddRecipe.value = false
-}
-
 function closeShareModal() {
   showShareModal.value = false
   // Reset invitation form
-  inviteEmail.value = ''
-  inviteMessage.value = ''
+  inviteUsername.value = ''
   inviteError.value = ''
   inviteSuccess.value = ''
+  memberDetails.value = []
 }
 
-function addRecipeToCookbook(recipe: Recipe) {
+async function loadMemberDetails() {
+  if (!currentNotebook.value?.members) {
+    memberDetails.value = []
+    return
+  }
+
+  try {
+    const details = await Promise.all(
+      currentNotebook.value.members.map(async (memberId: string) => {
+        try {
+          const user = await authStore.getUserDetails(memberId)
+          return {
+            id: memberId,
+            username: user.username,
+            name: user.name,
+          }
+        } catch (err) {
+          console.error(`Failed to load details for member ${memberId}:`, err)
+          return {
+            id: memberId,
+            username: memberId,
+            name: 'Unknown',
+          }
+        }
+      }),
+    )
+    memberDetails.value = details
+  } catch (err) {
+    console.error('Failed to load member details:', err)
+    memberDetails.value = []
+  }
+}
+
+function createRecipe() {
   if (!currentNotebook.value) return
-
-  // In a real app, you'd call the API to add the recipe to the cookbook
-  console.log('Adding recipe to cookbook:', recipe._id, currentNotebook.value._id)
-  closeAddRecipe()
+  router.push(`/recipes/create?notebookId=${currentNotebook.value._id}`)
 }
 
-function goToCreateRecipe() {
-  router.push('/recipes')
-  closeAddRecipe()
-}
+// removed unused copyShareLink and inviteByEmail helpers
 
-function copyShareLink() {
-  // In a real app, you'd generate and copy a share link
-  navigator.clipboard.writeText(window.location.href)
-  console.log('Share link copied')
-}
-
-function inviteByEmail() {
-  // This function is no longer needed since we have the email form in the modal
-  console.log('Invite by email')
-}
-
-async function sendEmailInvitation() {
-  if (!inviteEmail.value || !currentNotebook.value || !authStore.userId) return
+async function sendUsernameInvitation() {
+  if (!inviteUsername.value || !currentNotebook.value || !authStore.userId) return
 
   isInviting.value = true
   inviteError.value = ''
   inviteSuccess.value = ''
 
   try {
-    // Get user ID by email first
-    const userId = await authStore.getUserIDByEmail(inviteEmail.value)
+    // Get user ID by username first
+    const userId = await authStore.getUserIDByUsername(inviteUsername.value)
 
     if (!userId || userId === '') {
-      inviteError.value = 'No user found with that email address'
+      inviteError.value = 'No user found with that username'
       return
     }
 
@@ -352,9 +303,15 @@ async function sendEmailInvitation() {
       member: userId,
     })
 
-    inviteSuccess.value = `Invitation sent to ${inviteEmail.value}!`
-    inviteEmail.value = ''
-    inviteMessage.value = ''
+    inviteSuccess.value = `${inviteUsername.value} has been added to this cookbook!`
+    inviteUsername.value = ''
+
+    // Reload the notebook to get updated members list
+    if (currentNotebook.value) {
+      await notebookStore.loadNotebookById(currentNotebook.value._id)
+      // Reload member details to show the new member
+      await loadMemberDetails()
+    }
 
     // Close modal after 2 seconds
     setTimeout(() => {
@@ -386,6 +343,13 @@ watch(
   },
   { immediate: true },
 )
+
+// Watch for share modal opening to load member details
+watch(showShareModal, async (isOpen) => {
+  if (isOpen) {
+    await loadMemberDetails()
+  }
+})
 
 onMounted(async () => {
   if (authStore.isAuthenticated) {
@@ -438,33 +402,12 @@ onMounted(async () => {
 }
 
 .add-recipe-btn {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  color: white;
-  border: none;
-  padding: 12px 24px;
-  border-radius: 8px;
-  font-size: 16px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: opacity 0.2s;
-}
-
-.add-recipe-btn:hover {
-  opacity: 0.9;
+  color: var(--brand-indigo-500);
+  margin-right: 8px;
 }
 
 .share-btn {
-  background: #f8f9fa;
-  border: 1px solid #dee2e6;
-  padding: 12px 16px;
-  border-radius: 8px;
-  cursor: pointer;
-  font-size: 16px;
-  transition: background-color 0.2s;
-}
-
-.share-btn:hover {
-  background: #e9ecef;
+  margin-left: 8px;
 }
 
 .filter-section {
@@ -487,7 +430,7 @@ onMounted(async () => {
 
 .search-input:focus {
   outline: none;
-  border-color: #667eea;
+  border-color: var(--color-primary);
 }
 
 .search-icon {
@@ -520,9 +463,9 @@ onMounted(async () => {
 }
 
 .tag-filter.active {
-  background: #667eea;
+  background: var(--brand-indigo-500);
   color: white;
-  border-color: #667eea;
+  border-color: var(--brand-indigo-500);
 }
 
 .loading {
@@ -589,54 +532,10 @@ onMounted(async () => {
   font-size: 24px;
 }
 
-.recipe-selection {
-  margin-bottom: 20px;
-}
-
-.no-recipes {
-  text-align: center;
-  padding: 40px;
-  color: #666;
-}
-
-.create-recipe-btn {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  color: white;
-  border: none;
-  padding: 12px 24px;
-  border-radius: 8px;
-  cursor: pointer;
-  margin-top: 15px;
-}
-
-.recipe-list {
-  max-height: 300px;
-  overflow-y: auto;
-}
-
-.recipe-option {
-  padding: 15px;
-  border: 1px solid #e1e5e9;
-  border-radius: 8px;
-  margin-bottom: 10px;
-  cursor: pointer;
-  transition: background-color 0.2s;
-}
-
-.recipe-option:hover {
-  background-color: #f8f9fa;
-}
-
-.recipe-option h4 {
-  margin: 0 0 8px 0;
-  color: #333;
-  font-size: 16px;
-}
-
-.recipe-option p {
-  margin: 0 0 10px 0;
-  color: #666;
-  font-size: 14px;
+.modal h4 {
+  margin: 20px 0 10px 0;
+  color: var(--brand-orange-500);
+  font-size: 18px;
 }
 
 .recipe-tags {
@@ -653,33 +552,7 @@ onMounted(async () => {
   font-size: 11px;
 }
 
-.share-content {
-  margin-bottom: 20px;
-}
-
-.share-content p {
-  margin-bottom: 20px;
-  color: #666;
-}
-
-.share-options {
-  display: flex;
-  gap: 10px;
-}
-
-.share-option {
-  background: #f8f9fa;
-  border: 1px solid #dee2e6;
-  padding: 12px 20px;
-  border-radius: 8px;
-  cursor: pointer;
-  font-size: 14px;
-  transition: background-color 0.2s;
-}
-
-.share-option:hover {
-  background: #e9ecef;
-}
+/* removed share-content/option sections */
 
 .form-actions {
   display: flex;
@@ -688,12 +561,8 @@ onMounted(async () => {
 }
 
 .cancel-btn {
-  background: #ddd;
-  color: #333;
-  border: none;
-  padding: 12px 24px;
-  border-radius: 8px;
-  cursor: pointer;
+  color: #6c757d;
+  margin-right: 8px;
 }
 
 @media (max-width: 768px) {
@@ -718,12 +587,12 @@ onMounted(async () => {
 }
 
 /* Email Invitation Form Styles */
-.email-invitation-form {
+.email-invitation {
   margin-top: 20px;
   padding: 20px;
-  background: #f8f9fa;
+  background: var(--color-background-soft);
   border-radius: 8px;
-  border: 1px solid #e1e5e9;
+  border: 1px solid var(--color-border);
 }
 
 .email-invitation-form h4 {
@@ -744,55 +613,44 @@ onMounted(async () => {
   font-size: 14px;
 }
 
-.email-input,
-.message-input {
+.email-input {
   width: 100%;
   padding: 10px 12px;
-  border: 1px solid #ddd;
+  border: 1px solid var(--color-border);
   border-radius: 6px;
   font-size: 14px;
   box-sizing: border-box;
   transition: border-color 0.2s;
 }
 
-.email-input:focus,
-.message-input:focus {
+.email-input:focus {
   outline: none;
-  border-color: #667eea;
+  border-color: var(--color-primary);
 }
 
-.message-input {
-  resize: vertical;
-  min-height: 80px;
+.invite-section {
+  margin: 20px 0;
 }
 
 .send-invite-btn {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  color: white;
-  border: none;
-  padding: 12px 24px;
-  border-radius: 6px;
-  font-size: 14px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: opacity 0.2s;
-}
-
-.send-invite-btn:hover:not(:disabled) {
-  opacity: 0.9;
+  color: var(--brand-indigo-500);
 }
 
 .send-invite-btn:disabled {
-  opacity: 0.6;
+  opacity: 0.5;
   cursor: not-allowed;
+}
+
+.send-invite-btn:disabled:hover {
+  text-decoration: none;
 }
 
 .error-message {
   margin-top: 10px;
   padding: 8px 12px;
-  background: #f8d7da;
-  color: #721c24;
-  border: 1px solid #f5c6cb;
+  background: rgba(211, 93, 43, 0.12);
+  color: var(--color-danger);
+  border: 1px solid rgba(211, 93, 43, 0.3);
   border-radius: 4px;
   font-size: 14px;
 }
@@ -800,9 +658,9 @@ onMounted(async () => {
 .success-message {
   margin-top: 10px;
   padding: 8px 12px;
-  background: #d4edda;
-  color: #155724;
-  border: 1px solid #c3e6cb;
+  background: rgba(184, 220, 219, 0.2);
+  color: var(--color-success);
+  border: 1px solid rgba(184, 220, 219, 0.4);
   border-radius: 4px;
   font-size: 14px;
 }

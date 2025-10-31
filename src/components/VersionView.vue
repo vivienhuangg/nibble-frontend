@@ -1,10 +1,5 @@
 <template>
   <div class="version-view">
-    <div class="version-header">
-      <h2>Version History</h2>
-      <button @click="showCreateVersion = true" class="create-version-btn">+ New Version</button>
-    </div>
-
     <div v-if="isLoading" class="loading">Loading versions...</div>
 
     <div v-else-if="versions.length === 0" class="empty-state">
@@ -13,7 +8,7 @@
       <p>Create the first version of this recipe!</p>
     </div>
 
-    <div v-else class="versions-container">
+    <div v-else class="versions-container" :class="{ 'has-details': selectedVersion }">
       <!-- Current Version (Latest) -->
       <div class="version-section">
         <h3>Current Version</h3>
@@ -149,6 +144,9 @@
               required
               placeholder="e.g., 3.8"
             />
+            <span v-if="baseVersionForFork" class="base-version-hint">
+              (based on v{{ baseVersionForFork.versionNum }})
+            </span>
           </div>
 
           <div class="form-group">
@@ -210,9 +208,9 @@
 
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
-import { useVersionStore } from '@/stores/version'
 import { useAuthStore } from '@/stores/auth'
-import type { Version, Ingredient, Step } from '@/types/api'
+import { useVersionStore } from '@/stores/version'
+import type { Ingredient, Step, Version } from '@/types/api'
 
 interface Props {
   recipeId: string
@@ -225,6 +223,7 @@ const authStore = useAuthStore()
 
 const showCreateVersion = ref(false)
 const selectedVersion = ref<Version | null>(null)
+const baseVersionForFork = ref<Version | null>(null)
 
 const isLoading = computed(() => versionStore.isLoading)
 const versions = computed(() => versionStore.versionsByRecipe(props.recipeId))
@@ -270,7 +269,9 @@ function viewVersion(version: Version) {
 
 function createVersionFrom(baseVersion: Version) {
   // Pre-populate the form with the base version's data
-  newVersion.versionNum = (parseFloat(baseVersion.versionNum) + 0.1).toFixed(1)
+  // Set the base version number as the starting point (user can change it)
+  baseVersionForFork.value = baseVersion
+  newVersion.versionNum = baseVersion.versionNum
   newVersion.notes = ''
   newVersion.ingredients = [...baseVersion.ingredients]
   newVersion.steps = [...baseVersion.steps]
@@ -304,6 +305,7 @@ function removeStep(index: number) {
 
 function closeCreateVersion() {
   showCreateVersion.value = false
+  baseVersionForFork.value = null
   resetForm()
 }
 
@@ -360,38 +362,27 @@ onMounted(async () => {
 
 .version-header h2 {
   margin: 0;
-  color: #333;
+  color: var(--color-heading);
   font-size: 28px;
   font-weight: 600;
 }
 
 .create-version-btn {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  color: white;
-  border: none;
-  padding: 12px 24px;
-  border-radius: 8px;
-  font-size: 16px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: opacity 0.2s;
-}
-
-.create-version-btn:hover {
-  opacity: 0.9;
+  color: var(--brand-indigo-500);
+  margin-bottom: 20px;
 }
 
 .loading {
   text-align: center;
   padding: 60px;
-  color: #666;
+  color: var(--color-text);
   font-size: 18px;
 }
 
 .empty-state {
   text-align: center;
   padding: 60px 20px;
-  color: #666;
+  color: var(--color-text);
 }
 
 .empty-icon {
@@ -401,7 +392,7 @@ onMounted(async () => {
 
 .empty-state h3 {
   margin: 0 0 10px 0;
-  color: #333;
+  color: var(--color-heading);
   font-size: 24px;
 }
 
@@ -412,8 +403,12 @@ onMounted(async () => {
 
 .versions-container {
   display: grid;
-  grid-template-columns: 1fr 400px;
+  grid-template-columns: 1fr;
   gap: 30px;
+}
+
+.versions-container.has-details {
+  grid-template-columns: 1fr 400px;
 }
 
 .version-section {
@@ -422,14 +417,14 @@ onMounted(async () => {
 
 .version-section h3 {
   margin: 0 0 20px 0;
-  color: #333;
+  color: var(--color-heading);
   font-size: 20px;
   font-weight: 600;
 }
 
 .version-card {
   background: white;
-  border: 1px solid #e1e5e9;
+  border: 1px solid var(--color-border);
   border-radius: 8px;
   padding: 20px;
   margin-bottom: 15px;
@@ -442,13 +437,13 @@ onMounted(async () => {
 }
 
 .version-card.current {
-  border-color: #667eea;
-  background: #f8f9ff;
+  border-color: var(--brand-indigo-500);
+  background: rgba(82, 120, 176, 0.1);
 }
 
 .version-card.selected {
-  border-color: #28a745;
-  background: #f0f8f0;
+  border-color: var(--color-success);
+  background: rgba(184, 220, 219, 0.2);
 }
 
 .version-header {
@@ -459,14 +454,14 @@ onMounted(async () => {
 
 .version-info h4 {
   margin: 0 0 8px 0;
-  color: #333;
+  color: var(--color-heading);
   font-size: 18px;
   font-weight: 600;
 }
 
 .version-notes {
   margin: 0 0 10px 0;
-  color: #666;
+  color: var(--color-text);
   font-size: 14px;
   line-height: 1.4;
 }
@@ -475,7 +470,7 @@ onMounted(async () => {
   display: flex;
   gap: 15px;
   font-size: 12px;
-  color: #888;
+  color: var(--color-text);
 }
 
 .version-actions {
@@ -486,36 +481,21 @@ onMounted(async () => {
 .view-btn,
 .fork-btn,
 .compare-btn {
-  background: #f8f9fa;
-  border: 1px solid #dee2e6;
-  padding: 6px 12px;
-  border-radius: 4px;
-  cursor: pointer;
+  margin: 0 4px;
   font-size: 12px;
-  transition: background-color 0.2s;
-}
-
-.view-btn:hover,
-.fork-btn:hover,
-.compare-btn:hover {
-  background: #e9ecef;
 }
 
 .fork-btn {
-  background: #e3f2fd;
-  border-color: #1976d2;
-  color: #1976d2;
+  color: var(--color-primary);
 }
 
 .compare-btn {
-  background: #fff3e0;
-  border-color: #f57c00;
-  color: #f57c00;
+  color: var(--color-accent);
 }
 
 .version-details-panel {
   background: white;
-  border: 1px solid #e1e5e9;
+  border: 1px solid var(--color-border);
   border-radius: 8px;
   overflow: hidden;
 }
@@ -525,22 +505,19 @@ onMounted(async () => {
   justify-content: space-between;
   align-items: center;
   padding: 20px;
-  background: #f8f9fa;
-  border-bottom: 1px solid #e1e5e9;
+  background: var(--color-background-soft);
+  border-bottom: 1px solid var(--color-border);
 }
 
 .panel-header h4 {
   margin: 0;
-  color: #333;
+  color: var(--color-heading);
   font-size: 18px;
 }
 
 .close-btn {
-  background: none;
-  border: none;
   font-size: 24px;
-  cursor: pointer;
-  color: #666;
+  color: var(--color-text);
 }
 
 .panel-content {
@@ -552,12 +529,12 @@ onMounted(async () => {
 .version-info {
   margin-bottom: 20px;
   padding-bottom: 20px;
-  border-bottom: 1px solid #e1e5e9;
+  border-bottom: 1px solid var(--color-border);
 }
 
 .version-info p {
   margin: 0 0 8px 0;
-  color: #333;
+  color: var(--color-heading);
   font-size: 14px;
 }
 
@@ -567,7 +544,7 @@ onMounted(async () => {
 
 .version-changes h5 {
   margin: 0 0 15px 0;
-  color: #333;
+  color: var(--color-heading);
   font-size: 16px;
 }
 
@@ -587,18 +564,18 @@ onMounted(async () => {
 }
 
 .change-item.added {
-  background: #e8f5e8;
-  color: #2e7d32;
+  background: rgba(184, 220, 219, 0.2);
+  color: var(--color-success);
 }
 
 .change-item.modified {
-  background: #fff3e0;
-  color: #f57c00;
+  background: rgba(250, 132, 40, 0.12);
+  color: var(--color-accent);
 }
 
 .change-item.removed {
-  background: #ffebee;
-  color: #c62828;
+  background: rgba(211, 93, 43, 0.12);
+  color: var(--color-danger);
 }
 
 .change-icon {
@@ -615,7 +592,7 @@ onMounted(async () => {
 .version-ingredients h5,
 .version-steps h5 {
   margin: 0 0 15px 0;
-  color: #333;
+  color: var(--color-heading);
   font-size: 16px;
 }
 
@@ -630,27 +607,27 @@ onMounted(async () => {
   align-items: center;
   gap: 8px;
   padding: 8px 12px;
-  background: #f8f9fa;
+  background: var(--color-background-soft);
   border-radius: 4px;
   font-size: 14px;
 }
 
 .quantity {
   font-weight: 600;
-  color: #667eea;
+  color: var(--color-primary);
 }
 
 .unit {
-  color: #666;
+  color: var(--color-text);
 }
 
 .name {
   font-weight: 500;
-  color: #333;
+  color: var(--color-heading);
 }
 
 .notes {
-  color: #888;
+  color: var(--color-text);
   font-style: italic;
 }
 
@@ -664,12 +641,12 @@ onMounted(async () => {
   display: flex;
   gap: 12px;
   padding: 12px;
-  background: #f8f9fa;
+  background: var(--color-background-soft);
   border-radius: 6px;
 }
 
 .step-number {
-  background: #28a745;
+  background: var(--color-success);
   color: white;
   width: 24px;
   height: 24px;
@@ -688,7 +665,7 @@ onMounted(async () => {
 
 .step-content p {
   margin: 0 0 5px 0;
-  color: #333;
+  color: var(--color-heading);
   font-size: 14px;
   line-height: 1.4;
 }
@@ -696,7 +673,7 @@ onMounted(async () => {
 .step-duration,
 .step-notes {
   font-size: 12px;
-  color: #666;
+  color: var(--color-text);
 }
 
 .modal-overlay {
@@ -724,7 +701,7 @@ onMounted(async () => {
 
 .modal h3 {
   margin-bottom: 20px;
-  color: #333;
+  color: var(--color-heading);
   font-size: 24px;
 }
 
@@ -736,14 +713,22 @@ onMounted(async () => {
   display: block;
   margin-bottom: 8px;
   font-weight: 500;
-  color: #555;
+  color: var(--color-text);
+}
+
+.base-version-hint {
+  display: block;
+  margin-top: 4px;
+  font-size: 12px;
+  color: #666;
+  font-style: italic;
 }
 
 .form-group input,
 .form-group textarea {
   width: 100%;
   padding: 12px;
-  border: 2px solid #e1e5e9;
+  border: 2px solid var(--color-border);
   border-radius: 8px;
   font-size: 16px;
   box-sizing: border-box;
@@ -752,7 +737,7 @@ onMounted(async () => {
 .form-group input:focus,
 .form-group textarea:focus {
   outline: none;
-  border-color: #667eea;
+  border-color: var(--color-primary);
 }
 
 .ingredient-row,
@@ -773,27 +758,18 @@ onMounted(async () => {
 }
 
 .remove-btn {
-  background: #ff4757;
-  color: white;
-  border: none;
-  width: 30px;
-  height: 30px;
-  border-radius: 50%;
-  cursor: pointer;
+  color: var(--color-danger);
+  width: auto;
+  height: auto;
+  padding: 0;
+  margin: 0 8px;
   font-size: 18px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
 }
 
 .add-btn {
-  background: #2ed573;
-  color: white;
-  border: none;
-  padding: 8px 16px;
-  border-radius: 6px;
-  cursor: pointer;
-  font-size: 14px;
+  color: var(--color-success);
+  padding: 0;
+  margin-top: 12px;
 }
 
 .form-actions {
@@ -804,26 +780,21 @@ onMounted(async () => {
 }
 
 .cancel-btn {
-  background: #ddd;
-  color: #333;
-  border: none;
-  padding: 12px 24px;
-  border-radius: 8px;
-  cursor: pointer;
+  color: #6c757d;
+  margin-right: 8px;
 }
 
 .submit-btn {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  color: white;
-  border: none;
-  padding: 12px 24px;
-  border-radius: 8px;
-  cursor: pointer;
+  color: var(--brand-blue-400);
 }
 
 .submit-btn:disabled {
-  opacity: 0.6;
+  opacity: 0.5;
   cursor: not-allowed;
+}
+
+.submit-btn:disabled:hover {
+  text-decoration: none;
 }
 
 @media (max-width: 1024px) {

@@ -12,16 +12,16 @@ import {
 // Utility function to get user-friendly error messages
 function getErrorMessage(error: ApiError): string {
 	if (error.status === 401) {
-		return "Invalid email or password. Please check your credentials.";
+		return "Invalid username or password. Please check your credentials.";
 	}
 	if (error.status === 403) {
 		return "Access denied. Please contact support.";
 	}
 	if (error.status === 404) {
-		return "User not found. Please check your email address.";
+		return "User not found. Please check your username.";
 	}
 	if (error.status === 409) {
-		return "An account with this email already exists.";
+		return "An account with this username already exists.";
 	}
 	if (error.status && error.status >= 500) {
 		return "Server error. Please try again later.";
@@ -57,9 +57,9 @@ export const useAuthStore = defineStore("auth", () => {
 	// Setup storage listener for cross-tab logout detection
 	let cleanupStorageListener: (() => void) | null = null;
 
-	async function login(email: string, password: string): Promise<void> {
+	async function login(username: string, password: string): Promise<void> {
 		// Validate input before making API call
-		const validation = validateUserLogin({ email, password });
+		const validation = validateUserLogin({ username, password });
 		if (!validation.isValid) {
 			error.value = formatValidationErrors(validation.errors);
 			throw new Error(error.value);
@@ -69,7 +69,7 @@ export const useAuthStore = defineStore("auth", () => {
 		error.value = null;
 
 		try {
-			const response = await userApi.login({ email, password });
+			const response = await userApi.login({ username, password });
 			const userId = response.user as ID;
 
 			// Fetch user details using the improved API
@@ -106,11 +106,11 @@ export const useAuthStore = defineStore("auth", () => {
 
 	async function register(
 		name: string,
-		email: string,
+		username: string,
 		password: string,
 	): Promise<void> {
 		// Validate input before making API call
-		const validation = validateUserRegistration({ name, email, password });
+		const validation = validateUserRegistration({ name, username, password });
 		if (!validation.isValid) {
 			error.value = formatValidationErrors(validation.errors);
 			throw new Error(error.value);
@@ -120,7 +120,7 @@ export const useAuthStore = defineStore("auth", () => {
 		error.value = null;
 
 		try {
-			const response = await userApi.register({ name, email, password });
+			const response = await userApi.register({ name, username, password });
 			const userId = response.user as ID;
 
 			// Fetch user details using the improved API
@@ -157,7 +157,7 @@ export const useAuthStore = defineStore("auth", () => {
 
 	async function updateProfile(updates: {
 		newName?: string;
-		newEmail?: string;
+		newUsername?: string;
 		newPreferences?: Record<string, unknown>;
 	}): Promise<void> {
 		if (!currentUser.value) {
@@ -298,14 +298,15 @@ export const useAuthStore = defineStore("auth", () => {
 		}
 	}
 
-	async function getUserIDByEmail(email: string): Promise<ID> {
+
+	async function getUserIDByUsername(username: string): Promise<ID> {
 		try {
-			return await userApi.getUserIDByEmail(email);
+			return await userApi.getUserIDByUsername(username);
 		} catch (err) {
 			if (err instanceof ApiError) {
 				error.value = err.message;
 			} else {
-				error.value = "Failed to get user ID by email.";
+				error.value = "Failed to get user ID by username.";
 			}
 			throw err;
 		}
@@ -334,7 +335,7 @@ export const useAuthStore = defineStore("auth", () => {
 		logout,
 		initializeAuth,
 		getUserDetails,
-		getUserIDByEmail,
+		getUserIDByUsername,
 		clearError,
 		refreshAuthState, // Debug method
 	};

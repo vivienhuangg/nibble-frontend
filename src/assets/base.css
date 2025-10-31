@@ -1,4 +1,6 @@
 /* color palette from <https://github.com/vuejs/theme> */
+
+@import url('https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,200..800&family=DM+Sans:ital,opsz,wght@0,9..40,100..1000;1,9..40,100..1000&display=swap');
 :root {
   --vt-c-white: #ffffff;
   --vt-c-white-soft: #f8f8f8;
@@ -19,6 +21,14 @@
   --vt-c-text-light-2: rgba(60, 60, 60, 0.66);
   --vt-c-text-dark-1: var(--vt-c-white);
   --vt-c-text-dark-2: rgba(235, 235, 235, 0.64);
+
+  /* Brand palette */
+  --brand-teal-100: #b8dcdb; /* light teal */
+  --brand-gold-500: #ed9e0d; /* gold */
+  --brand-blue-400: #5892a8; /* blue */
+  --brand-orange-500: #fa8428; /* orange */
+  --brand-indigo-500: #5278b0; /* indigo */
+  --brand-burnt-500: #d35d2b; /* burnt orange */
 }
 
 /* semantic color variables for this project */
@@ -34,6 +44,14 @@
   --color-text: var(--vt-c-text-light-1);
 
   --section-gap: 160px;
+
+  /* Semantic roles using brand colors */
+  --color-primary: var(--brand-indigo-500);
+  --color-secondary: var(--brand-blue-400);
+  --color-accent: var(--brand-orange-500);
+  --color-warning: var(--brand-gold-500);
+  --color-success: var(--brand-teal-100);
+  --color-danger: var(--brand-burnt-500);
 }
 
 @media (prefers-color-scheme: dark) {
@@ -66,21 +84,80 @@ body {
     color 0.5s,
     background-color 0.5s;
   line-height: 1.6;
-  font-family:
-    Inter,
-    -apple-system,
-    BlinkMacSystemFont,
-    'Segoe UI',
-    Roboto,
-    Oxygen,
-    Ubuntu,
-    Cantarell,
-    'Fira Sans',
-    'Droid Sans',
-    'Helvetica Neue',
-    sans-serif;
+  font-family: 'DM Sans', sans-serif;
   font-size: 15px;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6,
+.heading,
+.display {
+  font-family: 'Bricolage Grotesque', serif;
+  color: var(--color-heading);
+}
+
+/* ensure form controls inherit body font */
+input,
+textarea,
+select {
+  font-family: inherit;
+}
+
+/* Global button styles - text-based, bold, underlined on hover, heading font */
+button {
+  font-family: 'Bricolage Grotesque', serif;
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  cursor: pointer;
+  font-weight: bold;
+  font-size: inherit;
+  transition: text-decoration 0.2s;
+  color: inherit;
+  text-decoration: none;
+  display: inline;
+}
+
+button:hover:not(:disabled) {
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* All clickable elements should show pointer cursor */
+a,
+a:hover,
+[role='button'],
+[onclick],
+.cursor-pointer,
+.editable-title,
+.editable-description,
+.editable-ingredient,
+.editable-step,
+.can-edit,
+.version-card,
+.recipe-card,
+.recipe-option,
+.cookbook-item,
+.nav-item,
+.clickable,
+.add-ingredient-placeholder,
+.add-step-placeholder,
+.step-item,
+.ingredient-item,
+.notebook-item,
+.version-number-btn {
+  cursor: pointer;
 }

@@ -21,7 +21,7 @@
         <span class="stat-icon">👨‍🍳</span>
         <span>{{ recipe.steps.length }} steps</span>
       </div>
-      <div class="stat" v-if="forkCount > 0">
+      <div class="stat" v-if="forkCount && forkCount > 0">
         <span class="stat-icon">🍴</span>
         <span>{{ forkCount }} forks</span>
       </div>
@@ -35,20 +35,10 @@
 
     <div class="recipe-footer">
       <div class="recipe-date">Updated: {{ formatDate(recipe.updated) }}</div>
-      <div class="recipe-actions">
-        <button
-          @click.stop="toggleFavorite"
-          class="favorite-btn"
-          :class="{ favorited: isFavorited }"
-        >
-          {{ isFavorited ? '❤️' : '🤍' }}
-        </button>
-        <button @click.stop="shareRecipe" class="share-btn">📤</button>
-      </div>
     </div>
 
     <!-- Annotations indicator -->
-    <div v-if="annotationCount > 0" class="annotations-indicator">
+    <div v-if="annotationCount && annotationCount > 0" class="annotations-indicator">
       <span class="annotation-icon">💬</span>
       <span>{{ annotationCount }} comments</span>
     </div>
@@ -150,7 +140,7 @@ function formatDate(dateString: string): string {
 
 .version-info {
   font-weight: 600;
-  color: #667eea;
+  color: var(--color-primary);
 }
 
 .author-info {
@@ -272,7 +262,7 @@ function formatDate(dateString: string): string {
   position: absolute;
   top: 15px;
   right: 15px;
-  background: #667eea;
+  background: var(--brand-indigo-500);
   color: white;
   padding: 4px 8px;
   border-radius: 12px;

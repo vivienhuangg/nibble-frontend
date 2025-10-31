@@ -81,7 +81,10 @@ export const useVersionStore = defineStore("version", () => {
 
 		try {
 			const versionList = await versionApi.listVersionsByRecipe(recipeId);
-			versions.value = versionList;
+			// Merge with existing versions, avoiding duplicates
+			const existingIds = new Set(versions.value.map((v) => v.id));
+			const newVersions = versionList.filter((v) => !existingIds.has(v.id));
+			versions.value = [...versions.value, ...newVersions];
 		} catch (err) {
 			if (err instanceof ApiError) {
 				error.value = getErrorMessage(err);

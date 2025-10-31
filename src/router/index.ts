@@ -17,28 +17,28 @@ const router = createRouter({
 			component: () => import("../views/AuthView.vue"),
 			meta: { requiresGuest: true },
 		},
-		{
-			path: "/recipes",
-			name: "recipes",
-			component: () => import("../views/RecipesView.vue"),
-			meta: { requiresAuth: true },
-		},
-		{
-			path: "/recipe/:id",
-			name: "recipe-detail",
-			component: () => import("../views/RecipeDetailView.vue"),
-			meta: { requiresAuth: true },
-		},
+	{
+		path: "/recipes",
+		name: "recipes",
+		component: () => import("../views/RecipesView.vue"),
+		meta: { requiresAuth: true },
+	},
+	{
+		path: "/recipes/create",
+		name: "create-recipe",
+		component: () => import("../views/CreateRecipeView.vue"),
+		meta: { requiresAuth: true },
+	},
+	{
+		path: "/recipe/:id",
+		name: "recipe-detail",
+		component: () => import("../views/RecipeDetailView.vue"),
+		meta: { requiresAuth: true },
+	},
 		{
 			path: "/cookbook/:id",
 			name: "cookbook",
 			component: () => import("../views/CookbookView.vue"),
-			meta: { requiresAuth: true },
-		},
-		{
-			path: "/recipe/:id/versions",
-			name: "recipe-versions",
-			component: () => import("../views/RecipeVersionsView.vue"),
 			meta: { requiresAuth: true },
 		},
 		{

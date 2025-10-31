@@ -3,77 +3,7 @@
     <div class="recipes-container">
       <div class="recipes-header">
         <h1>My Recipes</h1>
-        <button @click="showCreateForm = true" class="create-btn">+ Create Recipe</button>
-      </div>
-
-      <!-- Create Recipe Form -->
-      <div v-if="showCreateForm" class="create-form-overlay">
-        <div class="create-form">
-          <h3>Create New Recipe</h3>
-          <form @submit.prevent="handleCreateRecipe">
-            <div class="form-group">
-              <label for="title">Recipe Title</label>
-              <input
-                id="title"
-                v-model="newRecipe.title"
-                type="text"
-                required
-                placeholder="Enter recipe title"
-              />
-            </div>
-
-            <div class="form-group">
-              <label for="description">Description</label>
-              <textarea
-                id="description"
-                v-model="newRecipe.description"
-                placeholder="Enter recipe description (optional)"
-                rows="3"
-              ></textarea>
-            </div>
-
-            <div class="form-group">
-              <label>Ingredients</label>
-              <div
-                v-for="(ingredient, index) in newRecipe.ingredients"
-                :key="index"
-                class="ingredient-row"
-              >
-                <input v-model="ingredient.name" placeholder="Ingredient name" required />
-                <input v-model="ingredient.quantity" placeholder="Quantity" required />
-                <input v-model="ingredient.unit" placeholder="Unit (optional)" />
-                <button type="button" @click="removeIngredient(index)" class="remove-btn">×</button>
-              </div>
-              <button type="button" @click="addIngredient" class="add-btn">+ Add Ingredient</button>
-            </div>
-
-            <div class="form-group">
-              <label>Steps</label>
-              <div v-for="(step, index) in newRecipe.steps" :key="index" class="step-row">
-                <textarea
-                  v-model="step.description"
-                  placeholder="Step description"
-                  required
-                  rows="2"
-                ></textarea>
-                <input
-                  v-model.number="step.duration"
-                  type="number"
-                  placeholder="Duration (minutes)"
-                />
-                <button type="button" @click="removeStep(index)" class="remove-btn">×</button>
-              </div>
-              <button type="button" @click="addStep" class="add-btn">+ Add Step</button>
-            </div>
-
-            <div class="form-actions">
-              <button type="button" @click="cancelCreate" class="cancel-btn">Cancel</button>
-              <button type="submit" :disabled="isLoading" class="submit-btn">
-                {{ isLoading ? 'Creating...' : 'Create Recipe' }}
-              </button>
-            </div>
-          </form>
-        </div>
+        <button @click="goToCreate" class="create-btn">+ Create Recipe</button>
       </div>
 
       <!-- Recipes List -->
@@ -116,81 +46,22 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import MainLayout from '@/components/MainLayout.vue'
 import { useAuthStore } from '@/stores/auth'
 import { useRecipeStore } from '@/stores/recipe'
-import type { Ingredient, Step } from '@/types/api'
 
 const router = useRouter()
 const recipeStore = useRecipeStore()
 const authStore = useAuthStore()
 
-const showCreateForm = ref(false)
 const isLoading = computed(() => recipeStore.isLoading)
 const error = computed(() => recipeStore.error)
 const userRecipes = computed(() => recipeStore.userRecipes)
 
-const newRecipe = reactive({
-  title: '',
-  description: '',
-  ingredients: [{ name: '', quantity: '', unit: '', notes: '' }] as Ingredient[],
-  steps: [{ description: '', duration: undefined, notes: '' }] as Step[],
-})
-
-function addIngredient() {
-  newRecipe.ingredients.push({ name: '', quantity: '', unit: '', notes: '' })
-}
-
-function removeIngredient(index: number) {
-  if (newRecipe.ingredients.length > 1) {
-    newRecipe.ingredients.splice(index, 1)
-  }
-}
-
-function addStep() {
-  newRecipe.steps.push({ description: '', duration: undefined, notes: '' })
-}
-
-function removeStep(index: number) {
-  if (newRecipe.steps.length > 1) {
-    newRecipe.steps.splice(index, 1)
-  }
-}
-
-function cancelCreate() {
-  showCreateForm.value = false
-  resetForm()
-}
-
-function resetForm() {
-  newRecipe.title = ''
-  newRecipe.description = ''
-  newRecipe.ingredients = [{ name: '', quantity: '', unit: '', notes: '' }]
-  newRecipe.steps = [{ description: '', duration: undefined, notes: '' }]
-}
-
-async function handleCreateRecipe() {
-  try {
-    recipeStore.clearError()
-
-    // Filter out empty ingredients and steps
-    const ingredients = newRecipe.ingredients.filter((ing) => ing.name && ing.quantity)
-    const steps = newRecipe.steps.filter((step) => step.description)
-
-    await recipeStore.createRecipe({
-      title: newRecipe.title,
-      description: newRecipe.description || undefined,
-      ingredients,
-      steps,
-    })
-
-    showCreateForm.value = false
-    resetForm()
-  } catch (err) {
-    console.error('Create recipe error:', err)
-  }
+function goToCreate() {
+  router.push('/recipes/create')
 }
 
 function viewRecipe(recipeId: string) {
@@ -235,146 +106,8 @@ h1 {
 }
 
 .create-btn {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  color: white;
-  border: none;
-  padding: 12px 24px;
-  border-radius: 8px;
-  font-size: 16px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: opacity 0.2s;
-}
-
-.create-btn:hover {
-  opacity: 0.9;
-}
-
-.create-form-overlay {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: rgba(0, 0, 0, 0.5);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 1000;
-}
-
-.create-form {
-  background: white;
-  border-radius: 12px;
-  padding: 30px;
-  width: 90%;
-  max-width: 600px;
-  max-height: 90vh;
-  overflow-y: auto;
-}
-
-.create-form h3 {
+  color: var(--brand-indigo-500);
   margin-bottom: 20px;
-  color: #333;
-  font-size: 24px;
-}
-
-.form-group {
-  margin-bottom: 20px;
-}
-
-.form-group label {
-  display: block;
-  margin-bottom: 8px;
-  font-weight: 500;
-  color: #555;
-}
-
-.form-group input,
-.form-group textarea {
-  width: 100%;
-  padding: 12px;
-  border: 2px solid #e1e5e9;
-  border-radius: 8px;
-  font-size: 16px;
-  box-sizing: border-box;
-}
-
-.form-group input:focus,
-.form-group textarea:focus {
-  outline: none;
-  border-color: #667eea;
-}
-
-.ingredient-row,
-.step-row {
-  display: flex;
-  gap: 10px;
-  margin-bottom: 10px;
-  align-items: center;
-}
-
-.ingredient-row input,
-.step-row textarea {
-  flex: 1;
-}
-
-.step-row input {
-  width: 120px;
-}
-
-.remove-btn {
-  background: #ff4757;
-  color: white;
-  border: none;
-  width: 30px;
-  height: 30px;
-  border-radius: 50%;
-  cursor: pointer;
-  font-size: 18px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.add-btn {
-  background: #2ed573;
-  color: white;
-  border: none;
-  padding: 8px 16px;
-  border-radius: 6px;
-  cursor: pointer;
-  font-size: 14px;
-}
-
-.form-actions {
-  display: flex;
-  gap: 10px;
-  justify-content: flex-end;
-  margin-top: 20px;
-}
-
-.cancel-btn {
-  background: #ddd;
-  color: #333;
-  border: none;
-  padding: 12px 24px;
-  border-radius: 8px;
-  cursor: pointer;
-}
-
-.submit-btn {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  color: white;
-  border: none;
-  padding: 12px 24px;
-  border-radius: 8px;
-  cursor: pointer;
-}
-
-.submit-btn:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
 }
 
 .loading {
