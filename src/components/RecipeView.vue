@@ -107,6 +107,7 @@
               @click="forkRecipe"
               :title="'Create a copy of this recipe'"
               class="fork-btn"
+              :disabled="isForking"
             >
               Fork
             </button>
@@ -120,10 +121,6 @@
               <Trash2 :size="18" />
             </button>
           </div>
-
-          <p v-if="!isOwnRecipe" class="read-only-notice">
-            This recipe was shared with you. Fork it to create your own editable copy.
-          </p>
         </div>
 
         <!-- View Mode: Show description as text -->
@@ -166,7 +163,6 @@
           </div>
 
           <div class="recipe-stats">
-            <span class="fork-count">{{ forkCount }} forks</span>
             <span class="annotation-count">{{ annotationCount }} comments</span>
           </div>
         </div>
@@ -464,7 +460,7 @@
 
 <script setup lang="ts">
 import { Check, CircleDot, Save, Sparkles, Trash2 } from 'lucide-vue-next'
-import { computed, nextTick, onMounted, ref } from 'vue'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { recipeApi } from '@/services/api'
 import { useAnnotationStore } from '@/stores/annotation'
@@ -504,6 +500,8 @@ const showShareModal = ref(false)
 const isSharing = ref(false)
 const showCreateForm = ref(false)
 const isCreating = ref(false)
+const isForking = ref(false)
+const hasInitializedEditModeFromQuery = ref(false)
 const newNotebook = ref({
   title: '',
   description: '',
@@ -547,7 +545,6 @@ const error = computed(() => recipeStore.error)
 const currentRecipe = computed(() => recipeStore.currentRecipe)
 const currentNotebook = computed(() => notebookStore.currentNotebook)
 
-const forkCount = ref(0)
 const annotationCount = computed(() =>
   currentRecipe.value ? annotationStore.annotationsByRecipe(currentRecipe.value._id).length : 0,
 )
@@ -624,38 +621,166 @@ function shareRecipe() {
   showShareModal.value = true
 }
 
+function getForkDestinationNotebookIds(): string[] {
+  const destinationIds = new Set<string>()
+
+  const current = currentNotebook.value
+  if (current?._id) {
+    destinationIds.add(current._id)
+  }
+
+  cookbooksContainingRecipe.value.forEach((notebook) => {
+    if (notebook?._id) {
+      destinationIds.add(notebook._id)
+    }
+  })
+
+  if (destinationIds.size === 0) {
+    const ownedNotebooks = availableNotebooks.value || []
+    const firstOwnedNotebook = ownedNotebooks[0]
+    if (firstOwnedNotebook?._id) {
+      destinationIds.add(firstOwnedNotebook._id)
+    }
+  }
+
+  return Array.from(destinationIds)
+}
+
 function navigateToCookbook(notebookId: string) {
   router.push(`/cookbooks/${notebookId}`)
 }
 
 async function forkRecipe() {
-  if (!currentRecipe.value || !authStore.userId || isOwnRecipe.value) return
+  if (isOwnRecipe.value) return
+
+  const recipe = currentRecipe.value
+  if (!recipe) return
+
+  if (!authStore.isAuthenticated) {
+    alert('Please log in to fork recipes.')
+    router.push('/auth')
+    return
+  }
+
+  const userId = authStore.userId
+  if (!userId) {
+    alert('Unable to determine your account. Please try logging in again.')
+    return
+  }
+
+  isForking.value = true
 
   try {
     // Create a new recipe based on the current one (fork)
-    // Owner is derived from session by backend
     const forkedRecipe = {
-      title: `${currentRecipe.value.title} (Fork)`,
-      description: currentRecipe.value.description,
-      ingredients: currentRecipe.value.ingredients,
-      steps: currentRecipe.value.steps,
-      tags: [...(currentRecipe.value.tags || [])],
-      forkedFrom: currentRecipe.value._id,
+      title: `${recipe.title} (Fork)`,
+      description: recipe.description,
+      ingredients: recipe.ingredients,
+      steps: recipe.steps,
+      tags: [...(recipe.tags || [])],
+      forkedFrom: recipe._id,
     }
 
     console.log('🍴 Forking recipe:', forkedRecipe)
 
-    // Call the recipe API to create the forked recipe
-    const response = await recipeApi.createRecipe(forkedRecipe)
-    const newRecipeId = (response as { recipe: string }).recipe
+    // Use the recipe store so caches stay in sync
+    const newRecipeId = await recipeStore.createRecipe(forkedRecipe)
 
     console.log('🍴 Recipe forked successfully, new ID:', newRecipeId)
 
+    const destinationNotebookIds = getForkDestinationNotebookIds()
+    if (destinationNotebookIds.length > 0) {
+      for (const notebookId of destinationNotebookIds) {
+        try {
+          await notebookStore.shareRecipe({
+            recipe: newRecipeId,
+            notebook: notebookId,
+          })
+          console.log('🍴 Fork saved to notebook:', notebookId)
+        } catch (shareError) {
+          console.error(`Failed to add forked recipe to notebook ${notebookId}:`, shareError)
+        }
+      }
+    } else {
+      console.warn('No owned cookbooks found—fork will not be added automatically.')
+    }
+
     // Navigate to the new recipe
-    router.push(`/recipe/${newRecipeId}`)
+    hasInitializedEditModeFromQuery.value = false
+    await router.push({ path: `/recipe/${newRecipeId}`, query: { edit: 'true' } })
   } catch (error) {
     console.error('Failed to fork recipe:', error)
     alert(`Failed to fork recipe: ${error instanceof Error ? error.message : 'Unknown error'}`)
+  } finally {
+    isForking.value = false
+  }
+}
+
+async function initializeRecipeData(recipeId: string) {
+  if (!recipeId) return
+
+  try {
+    await Promise.all([
+      recipeStore.loadRecipeById(recipeId),
+      annotationStore.loadAnnotationsForRecipe(recipeId),
+      notebookStore.loadUserNotebooks(),
+    ])
+
+    if (!notebookStore.currentNotebook && currentRecipe.value) {
+      const notebooks = await notebookStore.getNotebooksContainingRecipe(currentRecipe.value._id)
+      if (notebooks.length > 0) {
+        const ownedNotebook = notebooks.find((nb) => nb.owner === authStore.userId)
+        if (ownedNotebook) {
+          await notebookStore.loadNotebookById(ownedNotebook._id)
+        } else if (notebooks[0]) {
+          await notebookStore.loadNotebookById(notebooks[0]._id)
+        }
+      }
+    }
+
+    await Promise.all([loadSharedUsers(), loadAuthorName(), loadCookbooksContainingRecipe()])
+
+    if (
+      route.query.edit === 'true' &&
+      isOwnRecipe.value &&
+      !hasInitializedEditModeFromQuery.value
+    ) {
+      initializeLocalState()
+      editMode.value = true
+      hasInitializedEditModeFromQuery.value = true
+
+      nextTick(() => {
+        const ingredientNames = document.querySelectorAll('.ingredient-name-input')
+        ingredientNames.forEach((textarea) => {
+          if (textarea instanceof HTMLTextAreaElement) {
+            autoExpandTextarea({ target: textarea } as unknown as Event)
+          }
+        })
+
+        const ingredientNotes = document.querySelectorAll('.ingredient-notes-input')
+        ingredientNotes.forEach((textarea) => {
+          if (textarea instanceof HTMLTextAreaElement) {
+            autoExpandTextarea({ target: textarea } as unknown as Event)
+          }
+        })
+
+        const stepDescriptions = document.querySelectorAll('.step-description-input')
+        stepDescriptions.forEach((textarea) => {
+          if (textarea instanceof HTMLTextAreaElement) {
+            autoExpandTextarea({ target: textarea } as unknown as Event)
+          }
+        })
+
+        const stepNotes = document.querySelectorAll('.step-notes-input')
+        stepNotes.forEach((textarea) => {
+          if (textarea instanceof HTMLTextAreaElement) {
+            autoExpandTextarea({ target: textarea } as unknown as Event)
+          }
+        })
+      })
+    }
+  } catch (error) {
+    console.error('Failed to initialize recipe data:', error)
   }
 }
 
@@ -1063,12 +1188,42 @@ async function saveAllChanges() {
         ? editingDescriptionValue.value
         : currentRecipe.value.description || ''
 
+    const filteredIngredients = localIngredients.value
+      .filter((ing) => ing.name.trim() !== '')
+      .map((ing) => ({
+        ...ing,
+        notes: ing.notes ?? '',
+      }))
+
+    let filteredSteps = localSteps.value
+      .filter((step) => step.description.trim() !== '')
+      .map((step) => ({
+        ...step,
+        notes: step.notes ?? '',
+      }))
+
+    if (filteredSteps.length === 0) {
+      filteredSteps = (currentRecipe.value.steps || []).map((step) => ({
+        description: step.description || '',
+        notes: step.notes || '',
+      }))
+    }
+
     const updatedRecipe: Partial<RecipeUpdate> & { recipe: string } = {
       // owner derived from session by backend
       recipe: currentRecipe.value._id,
       newTitle: editingTitleValue.value || currentRecipe.value.title,
       newDescription: sanitizedDescription,
-      newIngredients: localIngredients.value.filter((ing) => ing.name.trim() !== ''),
+      newIngredients:
+        filteredIngredients.length > 0
+          ? filteredIngredients
+          : (currentRecipe.value.ingredients || []).map((ing) => ({
+              name: ing.name || '',
+              quantity: ing.quantity || '',
+              unit: ing.unit || '',
+              notes: ing.notes || '',
+            })),
+      newSteps: filteredSteps,
     }
 
     console.log('💾 Saving all changes:', updatedRecipe)
@@ -1522,43 +1677,65 @@ async function loadSharedUsers(): Promise<void> {
 
 onMounted(async () => {
   const recipeId = route.params.id as string
-  if (recipeId) {
-    await Promise.all([
-      recipeStore.loadRecipeById(recipeId),
-      annotationStore.loadAnnotationsForRecipe(recipeId),
-      notebookStore.loadUserNotebooks(), // Load user notebooks for sharing
-    ])
-
-    // Load fork count
-    if (currentRecipe.value?._id) {
-      try {
-        const response = await recipeApi.getForkCount(currentRecipe.value._id)
-        forkCount.value = (response as { count: number }).count || 0
-      } catch (error) {
-        console.error('Failed to load fork count:', error)
-        forkCount.value = 0
-      }
-    }
-
-    // Restore current notebook if recipe is in a notebook
-    if (!notebookStore.currentNotebook && currentRecipe.value) {
-      const notebooks = await notebookStore.getNotebooksContainingRecipe(currentRecipe.value._id)
-      if (notebooks.length > 0) {
-        // Prefer user's own notebooks over shared ones
-        const ownedNotebook = notebooks.find((nb) => nb.owner === authStore.userId)
-        if (ownedNotebook) {
-          await notebookStore.loadNotebookById(ownedNotebook._id)
-        } else if (notebooks[0]) {
-          // Use the first shared notebook
-          await notebookStore.loadNotebookById(notebooks[0]._id)
-        }
-      }
-    }
-
-    // Load shared users, author name, and cookbooks after recipe is loaded
-    await Promise.all([loadSharedUsers(), loadAuthorName(), loadCookbooksContainingRecipe()])
-  }
+  hasInitializedEditModeFromQuery.value = false
+  await initializeRecipeData(recipeId)
 })
+
+watch(
+  () => currentRecipe.value?._id,
+  (newId, oldId) => {
+    if (
+      newId &&
+      newId !== oldId &&
+      route.query.edit === 'true' &&
+      isOwnRecipe.value &&
+      !hasInitializedEditModeFromQuery.value
+    ) {
+      initializeLocalState()
+      editMode.value = true
+      hasInitializedEditModeFromQuery.value = true
+
+      nextTick(() => {
+        const ingredientNames = document.querySelectorAll('.ingredient-name-input')
+        ingredientNames.forEach((textarea) => {
+          if (textarea instanceof HTMLTextAreaElement) {
+            autoExpandTextarea({ target: textarea } as unknown as Event)
+          }
+        })
+
+        const ingredientNotes = document.querySelectorAll('.ingredient-notes-input')
+        ingredientNotes.forEach((textarea) => {
+          if (textarea instanceof HTMLTextAreaElement) {
+            autoExpandTextarea({ target: textarea } as unknown as Event)
+          }
+        })
+
+        const stepDescriptions = document.querySelectorAll('.step-description-input')
+        stepDescriptions.forEach((textarea) => {
+          if (textarea instanceof HTMLTextAreaElement) {
+            autoExpandTextarea({ target: textarea } as unknown as Event)
+          }
+        })
+
+        const stepNotes = document.querySelectorAll('.step-notes-input')
+        stepNotes.forEach((textarea) => {
+          if (textarea instanceof HTMLTextAreaElement) {
+            autoExpandTextarea({ target: textarea } as unknown as Event)
+          }
+        })
+      })
+    }
+  },
+)
+
+watch(
+  () => route.params.id,
+  async (newId, oldId) => {
+    if (!newId || newId === oldId) return
+    hasInitializedEditModeFromQuery.value = false
+    await initializeRecipeData(newId as string)
+  },
+)
 
 const __templateBindings = {
   showDraftModal,
@@ -1570,6 +1747,7 @@ const __templateBindings = {
   isSharing,
   showCreateForm,
   isCreating,
+  isForking,
   newNotebook,
   editMode,
   showEditHint,
@@ -1591,7 +1769,6 @@ const __templateBindings = {
   error,
   currentRecipe,
   currentNotebook,
-  forkCount,
   annotationCount,
   cookbooksContainingRecipe,
   displayIngredients,

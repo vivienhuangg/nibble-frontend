@@ -32,7 +32,6 @@
       </div>
       <div class="stat" v-if="forkCount && forkCount > 0">
         <GitFork :size="16" :stroke-width="2" class="stat-icon" />
-        <span>{{ forkCount }} forks</span>
       </div>
     </div>
 

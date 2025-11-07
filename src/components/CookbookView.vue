@@ -180,7 +180,9 @@ watch(
       )
       const loadedRecipes = await recipeStore.loadRecipesByIds(newNotebook.recipes)
       recipes.value = Array.isArray(loadedRecipes)
-        ? loadedRecipes.filter((recipe): recipe is Recipe => Boolean(recipe))
+        ? loadedRecipes.filter(
+            (recipe): recipe is Recipe => Boolean(recipe) && Boolean(recipe.owner),
+          )
         : []
       console.log('🔍 CookbookView - Loaded recipes:', loadedRecipes)
 
@@ -207,7 +209,9 @@ const availableTags = computed(() => {
 
 const filteredRecipes = computed(() => {
   const recipeList = Array.isArray(recipes.value) ? recipes.value : []
-  let filtered = recipeList.filter((recipe): recipe is Recipe => Boolean(recipe))
+  let filtered = recipeList.filter(
+    (recipe): recipe is Recipe => Boolean(recipe) && Boolean(recipe.owner),
+  )
 
   // Filter by search query
   if (searchQuery.value) {
@@ -290,6 +294,8 @@ async function handleRecipeDelete(recipe: Recipe) {
     if (currentNotebook.value?._id) {
       await notebookStore.loadNotebookById(currentNotebook.value._id)
     }
+    await notebookStore.loadUserNotebooks()
+    await notebookStore.loadSharedNotebooks()
   } catch (error) {
     console.error('Failed to delete recipe:', error)
     alert('Failed to delete recipe. Please try again.')
