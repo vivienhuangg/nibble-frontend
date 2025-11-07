@@ -19,7 +19,7 @@ import type {
 } from "@/types/api";
 import { userStorage } from "@/utils/secureStorage";
 
-const API_BASE_URL = "/api";
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "/api";
 
 class ApiError extends Error {
 	constructor(
