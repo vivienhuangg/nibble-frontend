@@ -2732,7 +2732,9 @@ void __templateBindings
 
 /* Save indicator styles */
 .save-indicator {
-  margin-top: 8px;
+  display: flex;
+  align-items: center;
+  margin-top: 0;
   font-size: 14px;
   font-weight: 500;
 }

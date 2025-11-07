@@ -39,15 +39,15 @@
 
             <div class="save-indicator">
               <span v-if="isSaving" class="saving-indicator">
-                <SaveIcon :size="16" :stroke-width="2" />
+                <Save :size="16" :stroke-width="2" />
                 Saving...
               </span>
               <span v-else-if="hasChanges" class="unsaved-indicator">
-                <CircleDotIcon :size="16" :stroke-width="2" />
+                <CircleDot :size="16" :stroke-width="2" />
                 Draft
               </span>
               <span v-else class="saved-indicator">
-                <PencilIcon :size="16" :stroke-width="2" />
+                <Pencil :size="16" :stroke-width="2" />
                 Start editing...
               </span>
             </div>
@@ -57,7 +57,7 @@
                 @click="handleAIDraftClick"
                 :disabled="isSaving || currentDraft !== null"
                 :title="'Ask AI to generate a recipe from scratch or modify what you have'"
-                class="draft-btn"
+                class="draft-btn header-action-btn"
               >
                 AI Draft
               </button>
@@ -65,7 +65,7 @@
                 type="button"
                 @click="handleCreateRecipe"
                 :disabled="isSaving"
-                class="save-btn"
+                class="save-btn header-action-btn"
               >
                 {{
                   isSaving
@@ -77,7 +77,9 @@
                       : 'Create'
                 }}
               </button>
-              <button type="button" @click="goBack" class="cancel-btn">Cancel</button>
+              <button type="button" @click="goBack" class="cancel-btn header-action-btn">
+                Cancel
+              </button>
             </div>
           </div>
 
@@ -622,21 +624,14 @@ function handleDraftReady(draft: VersionDraft) {
 
 // Discard the current draft and reset to original data
 function discardDraft() {
-  // Store original data before clearing
-  const originalIngredients = recipeData.ingredients.filter(
-    (ing) => ing.name && ing.quantity && currentDraft.value,
-  )
-  const originalSteps = recipeData.steps.filter((step) => step.description && currentDraft.value)
-
   currentDraft.value = null
+  recipeData.ingredients = [{ name: '', quantity: '', unit: '', notes: '' }]
+  recipeData.steps = [{ description: '', notes: '' }]
+  recipeData.description = ''
 
-  // If we had content before the draft, restore it
-  if (originalIngredients.length === 0) {
-    recipeData.ingredients = [{ name: '', quantity: '', unit: '', notes: '' }]
-  }
-  if (originalSteps.length === 0) {
-    recipeData.steps = [{ description: '', notes: '' }]
-  }
+  nextTick(() => {
+    resizeAllTextareas()
+  })
 }
 
 // Save the draft changes
@@ -726,6 +721,26 @@ function getDraftConfidenceClass() {
   margin-left: auto;
 }
 
+.header-action-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px 14px;
+  font-size: 14px;
+  font-weight: 600;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  border-radius: 6px;
+  transition:
+    color 0.2s ease,
+    background-color 0.2s ease;
+}
+
+.header-action-btn:disabled {
+  cursor: not-allowed;
+}
+
 .back-btn {
   background: white;
   border: none;
@@ -738,13 +753,6 @@ function getDraftConfidenceClass() {
 
 .draft-btn {
   color: var(--brand-indigo-500);
-  background: transparent;
-  border: none;
-  padding: 8px 16px;
-  cursor: pointer;
-  font-size: 14px;
-  font-weight: 500;
-  transition: all 0.2s;
 }
 
 .draft-btn:hover:not(:disabled) {
@@ -761,7 +769,6 @@ function getDraftConfidenceClass() {
 }
 
 .save-btn {
-  margin-left: auto;
   color: var(--brand-blue-400);
 }
 
@@ -776,7 +783,6 @@ function getDraftConfidenceClass() {
 
 .cancel-btn {
   color: #6c757d;
-  margin-right: 8px;
 }
 
 .error-message {
@@ -892,7 +898,9 @@ function getDraftConfidenceClass() {
 
 /* Save indicator styles */
 .save-indicator {
-  margin-top: 8px;
+  display: flex;
+  align-items: center;
+  margin-top: 0;
   font-size: 14px;
   font-weight: 500;
 }
