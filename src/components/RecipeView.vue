@@ -1058,11 +1058,16 @@ async function saveAllChanges() {
   isSaving.value = true
 
   try {
+    const sanitizedDescription =
+      editingDescriptionValue.value !== undefined && editingDescriptionValue.value !== null
+        ? editingDescriptionValue.value
+        : currentRecipe.value.description || ''
+
     const updatedRecipe: Partial<RecipeUpdate> & { recipe: string } = {
       // owner derived from session by backend
       recipe: currentRecipe.value._id,
       newTitle: editingTitleValue.value || currentRecipe.value.title,
-      newDescription: editingDescriptionValue.value || currentRecipe.value.description,
+      newDescription: sanitizedDescription,
       newIngredients: localIngredients.value.filter((ing) => ing.name.trim() !== ''),
     }
 

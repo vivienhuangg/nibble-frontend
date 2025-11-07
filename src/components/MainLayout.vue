@@ -30,6 +30,8 @@
               <Plus :size="18" />
               <span>New Cookbook</span>
             </button>
+
+            <div class="nav-divider"></div>
           </div>
 
           <div class="nav-section">
@@ -291,6 +293,12 @@ onMounted(async () => {
 
 .nav-section {
   margin-bottom: 30px;
+}
+
+.nav-divider {
+  height: 1px;
+  background-color: #e1e5e9;
+  margin: 10px 20px 0;
 }
 
 .nav-section h3 {
