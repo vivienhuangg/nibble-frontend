@@ -209,8 +209,10 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useAuthStore } from '@/stores/auth'
-import { useVersionStore } from '@/stores/version'
-import type { Ingredient, Step, Version } from '@/types/api'
+import type { Ingredient, Step } from '@/types/api'
+
+// NOTE: Version concept does not exist in the backend API spec
+// This component needs to be reimplemented or removed
 
 interface Props {
   recipeId: string
@@ -218,15 +220,14 @@ interface Props {
 
 const props = defineProps<Props>()
 
-const versionStore = useVersionStore()
 const authStore = useAuthStore()
 
 const showCreateVersion = ref(false)
-const selectedVersion = ref<Version | null>(null)
-const baseVersionForFork = ref<Version | null>(null)
+const selectedVersion = ref<any | null>(null)
+const baseVersionForFork = ref<any | null>(null)
 
-const isLoading = computed(() => versionStore.isLoading)
-const versions = computed(() => versionStore.versionsByRecipe(props.recipeId))
+const isLoading = ref(false)
+const versions = ref<any[]>([])
 
 const latestVersion = computed(() => {
   if (versions.value.length === 0) return null
@@ -317,30 +318,14 @@ function resetForm() {
 }
 
 async function handleCreateVersion() {
-  try {
-    versionStore.clearError()
-
-    // Filter out empty ingredients and steps
-    const ingredients = newVersion.ingredients.filter((ing) => ing.name && ing.quantity)
-    const steps = newVersion.steps.filter((step) => step.description)
-
-    await versionStore.createVersion({
-      recipe: props.recipeId,
-      versionNum: newVersion.versionNum,
-      notes: newVersion.notes,
-      ingredients,
-      steps,
-      promptHistory: [], // In a real app, this would be populated
-    })
-
-    closeCreateVersion()
-  } catch (err) {
-    console.error('Create version error:', err)
-  }
+  // Version concept does not exist in backend API spec
+  console.warn('Version creation not implemented - Version concept not in backend spec')
+  closeCreateVersion()
 }
 
 onMounted(async () => {
-  await versionStore.loadVersionsByRecipe(props.recipeId)
+  // Version loading not available - backend doesn't have Version concept
+  console.warn('Version loading not available - Version concept not in backend spec')
 })
 </script>
 

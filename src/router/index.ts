@@ -1,6 +1,5 @@
 import { createRouter, createWebHistory } from "vue-router";
 import { useAuthStore } from "@/stores/auth";
-import HomeView from "../views/HomeView.vue";
 
 const router = createRouter({
 	history: createWebHistory(import.meta.env.BASE_URL),
@@ -8,7 +7,7 @@ const router = createRouter({
 		{
 			path: "/",
 			name: "home",
-			component: HomeView,
+			component: () => import("../views/CookbooksLandingView.vue"),
 			meta: { requiresAuth: true },
 		},
 		{
@@ -36,7 +35,13 @@ const router = createRouter({
 		meta: { requiresAuth: true },
 	},
 		{
-			path: "/cookbook/:id",
+			path: "/cookbooks",
+			name: "cookbooks",
+			component: () => import("../views/CookbooksLandingView.vue"),
+			meta: { requiresAuth: true },
+		},
+		{
+			path: "/cookbooks/:id",
 			name: "cookbook",
 			component: () => import("../views/CookbookView.vue"),
 			meta: { requiresAuth: true },

@@ -21,37 +21,33 @@
       <div class="sidebar-content">
         <nav class="sidebar-nav">
           <div class="nav-section">
+            <button @click="goToCookbooks" class="view-all-btn">
+              <BookOpenText :size="18" />
+              <span>All Cookbooks</span>
+            </button>
+
             <button @click="showCreateNotebook = true" class="create-notebook-btn">
-              + New Cookbook
+              <Plus :size="18" />
+              <span>New Cookbook</span>
             </button>
           </div>
 
           <div class="nav-section">
-            <h3>Cookbooks</h3>
             <div class="nav-items">
               <button
-                v-for="notebook in userNotebooks || []"
+                v-for="notebook in allNotebooks"
                 :key="notebook._id"
                 @click="selectNotebook(notebook)"
                 class="nav-item"
                 :class="{ active: currentNotebook?._id === notebook._id }"
               >
-                {{ notebook.title }}
-              </button>
-            </div>
-          </div>
-
-          <div class="nav-section">
-            <h3>Shared</h3>
-            <div class="nav-items">
-              <button
-                v-for="notebook in sharedNotebooks || []"
-                :key="notebook._id"
-                @click="selectNotebook(notebook)"
-                class="nav-item shared"
-                :class="{ active: currentNotebook?._id === notebook._id }"
-              >
-                {{ notebook.title }}
+                <span class="notebook-title">{{ notebook.title }}</span>
+                <Users
+                  v-if="isSharedNotebook(notebook)"
+                  :size="16"
+                  class="shared-icon"
+                  title="Shared with you"
+                />
               </button>
             </div>
           </div>
@@ -111,20 +107,17 @@
 </template>
 
 <script setup lang="ts">
+import { BookOpenText, Plus, Users } from 'lucide-vue-next'
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { useAnnotationStore } from '@/stores/annotation'
 import { useAuthStore } from '@/stores/auth'
 import { useNotebookStore } from '@/stores/notebook'
 import { useRecipeStore } from '@/stores/recipe'
-import { useVersionStore } from '@/stores/version'
 
 const router = useRouter()
 const notebookStore = useNotebookStore()
 const authStore = useAuthStore()
 const recipeStore = useRecipeStore()
-const versionStore = useVersionStore()
-const annotationStore = useAnnotationStore()
 
 const sidebarCollapsed = ref(true)
 const showCreateNotebook = ref(false)
@@ -140,6 +133,16 @@ const sharedNotebooks = computed(() => {
 })
 const currentNotebook = computed(() => notebookStore.currentNotebook)
 
+// Combine all notebooks (owned + shared) into a single list
+const allNotebooks = computed(() => {
+  return [...(userNotebooks.value || []), ...(sharedNotebooks.value || [])]
+})
+
+// Check if a notebook is shared (not owned by current user)
+function isSharedNotebook(notebook: { _id: string; owner: string }) {
+  return notebook.owner !== authStore.userId
+}
+
 const newNotebook = reactive({
   title: '',
   description: '',
@@ -148,15 +151,11 @@ const newNotebook = reactive({
 function selectNotebook(notebook: { _id: string }) {
   notebookStore.loadNotebookById(notebook._id)
   // Navigate to cookbook view
-  router.push(`/cookbook/${notebook._id}`)
+  router.push(`/cookbooks/${notebook._id}`)
 }
 
-function goToRecipes() {
-  router.push('/recipes')
-}
-
-function goToHome() {
-  router.push('/')
+function goToCookbooks() {
+  router.push('/cookbooks')
 }
 
 function handleLogout() {
@@ -311,6 +310,7 @@ onMounted(async () => {
 .nav-item {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   padding: 12px 20px;
   background: none;
   border: none;
@@ -319,6 +319,7 @@ onMounted(async () => {
   color: #333;
   font-size: 16px;
   transition: background-color 0.2s;
+  width: 100%;
 }
 
 .nav-item:hover {
@@ -329,12 +330,16 @@ onMounted(async () => {
   color: var(--brand-blue-400);
 }
 
-.nav-item.shared {
-  color: var(--color-success);
+.notebook-title {
+  flex: 1;
+  text-align: left;
 }
 
-.nav-item.shared.active {
-  color: var(--brand-blue-400);
+.shared-icon {
+  margin-left: 8px;
+  opacity: 0.6;
+  flex-shrink: 0;
+  stroke-width: 2;
 }
 
 .nav-icon {
@@ -345,6 +350,7 @@ onMounted(async () => {
 .create-notebook-btn {
   display: flex;
   align-items: center;
+  gap: 10px;
   color: var(--brand-blue-400);
   text-align: left;
   padding: 12px 20px;
@@ -359,6 +365,34 @@ onMounted(async () => {
 
 .create-notebook-btn:hover {
   opacity: 0.8;
+}
+
+.create-notebook-btn svg {
+  flex-shrink: 0;
+}
+
+.view-all-btn {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--brand-indigo-500);
+  text-align: left;
+  padding: 12px 20px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 16px;
+  width: 100%;
+  justify-content: flex-start;
+  transition: opacity 0.2s;
+}
+
+.view-all-btn:hover {
+  opacity: 0.8;
+}
+
+.view-all-btn svg {
+  flex-shrink: 0;
 }
 
 .main-content {

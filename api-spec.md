@@ -1,28 +1,71 @@
 # Nibble Backend API Specification
 
-**Base URL:** `http://localhost:8000/api`
-
+**Base URL:** `http://localhost:10000/api`  
 **Protocol:** All endpoints accept POST requests with JSON request bodies and return JSON responses.
+**Last Updated:** November 5, 2025
+
+---
+
+## 🔐 Authentication
+
+### Session-Based Authentication
+
+Most endpoints require a **session token** obtained from login. Include it in the request body:
+
+```json
+{
+  "session": "your-session-token-here"
+  // ... other parameters
+}
+```
+
+**Session Lifecycle:**
+
+- **Obtain:** Login returns a session token
+- **Duration:** 7 days (auto-expires)
+- **Use:** Include in all protected endpoints
+- **Destroy:** Logout via `/api/Sessioning/deleteSession`
+
+### Endpoint Types:
+
+- 🔓 **Public** - No session required
+- 🔒 **Protected** - Session required
+- 🔑 **Authorized** - Session + ownership/membership check
+
+### ⚠️ Critical Security Note:
+
+**NEVER send `author`, `owner`, or `requester` fields from the frontend!**
+
+The backend automatically derives user identity from the authenticated session token. Sending these fields from the frontend is:
+
+- ❌ Ignored by the backend (session takes precedence)
+- ❌ A security risk (could lead to impersonation attempts)
+- ❌ Unnecessary (backend handles it)
+
+**Correct:** Send only `session` token  
+**Incorrect:** Send `session` + `author`/`owner`/`requester`
 
 ---
 
 ## Table of Contents
 
-1. [User Concept](#user-concept)
-2. [Recipe Concept](#recipe-concept)
-3. [Annotation Concept](#annotation-concept)
+1. [User & Authentication](#user--authentication)
+2. [Session Management](#session-management)
+3. [Recipe Concept](#recipe-concept)
 4. [Notebook Concept](#notebook-concept)
-5. [Step Concept](#step-concept)
+5. [Annotation Concept](#annotation-concept)
 
 ---
 
-## User Concept
+## User & Authentication
 
-**Purpose:** represent an individual user within the system, enabling personalization, ownership, and access control.
+**Purpose:** User management and authentication
 
 ### POST /api/User/registerUser
 
-**Description:** Creates a new user in the system.
+🔓 **Public** - No session required
+
+**Description:** Creates a new user account.
 
 **Requirements:**
 
@@ -65,15 +108,19 @@
 
 ### POST /api/User/login
 
-**Description:** Authenticates a user with the provided username and password.
+🔓 **Public** - Returns session token for authenticated requests
+
+**Description:** Authenticates a user and creates a session.
 
 **Requirements:**
 
-- a user with the given `username` and `password` exists.
+- User with the given `username` and `password` exists.
 
 **Effects:**
 
-- returns the `ID` of the authenticated user.
+- Validates credentials
+- Creates a session (7-day expiration)
+- Returns user ID and session token
 
 **Request Body:**
 
@@ -84,11 +131,12 @@
 }
 ```
 
-**Success Response Body (Action):**
+**Success Response Body:**
 
 ```json
 {
-  "user": "ID"
+  "user": "ID",
+  "session": "SESSION_TOKEN"
 }
 ```
 
@@ -96,9 +144,11 @@
 
 ```json
 {
-  "error": "string"
+  "error": "Invalid username or password"
 }
 ```
+
+**💡 Important:** Save the `session` token and include it in all protected endpoint requests.
 
 ---
 
@@ -226,6 +276,40 @@
 ```json
 {
   "error": "string"
+}
+```
+
+---
+
+## Session Management
+
+**Purpose:** Manage user sessions for authentication
+
+### POST /api/Sessioning/deleteSession
+
+🔓 **Public** - Destroys a session (logout)
+
+**Description:** Ends a user session.
+
+**Request Body:**
+
+```json
+{
+  "session": "SESSION_TOKEN"
+}
+```
+
+**Success Response Body:**
+
+```json
+{}
+```
+
+**Error Response Body:**
+
+```json
+{
+  "error": "Session not found"
 }
 ```
 
@@ -1520,8 +1604,391 @@ For specific validation errors, the response will include a descriptive error me
 
 ## Notes
 
-- All IDs are MongoDB ObjectID strings
+- All IDs are MongoDB ObjectID strings (ULIDs)
 - All timestamps follow ISO 8601 format
 - Query endpoints (prefixed with `_`) return arrays of results
 - Action endpoints return objects with specific success data or empty objects
-- The server is configured to run on port 8000 with base URL `/api`
+- The server runs on port 10000 (configurable via `PORT` env var) with base URL `/api`
+
+---
+
+## 🚀 Frontend Integration Guide
+
+### ⚠️ CRITICAL: Session & User ID Handling
+
+**DO THIS:**
+
+```typescript
+// ✅ Correct: Only send session
+{
+  "session": "your-session-token",
+  "recipe": "recipe-id",
+  "title": "My Recipe",
+  ...
+}
+```
+
+**DON'T DO THIS:**
+
+```typescript
+// ❌ Wrong: Don't send owner/author/requester
+{
+  "session": "your-session-token",
+  "owner": "user-id",  // ❌ Backend ignores this!
+  "recipe": "recipe-id",
+  ...
+}
+```
+
+**Why?** The backend automatically gets the user ID from your session token. Sending user IDs from the frontend:
+
+- Is unnecessary (backend handles it)
+- Could be a security risk (impersonation attempts)
+- Will be ignored anyway (session takes precedence)
+
+---
+
+### Authentication Flow
+
+```typescript
+// 1. Register (if new user)
+const registerRes = await fetch('/api/User/registerUser', {
+  method: 'POST',
+  body: JSON.stringify({ name, username, password })
+});
+
+// 2. Login (get session token)
+const loginRes = await fetch('/api/User/login', {
+  method: 'POST',
+  body: JSON.stringify({ username, password })
+});
+const { user, session } = await loginRes.json();
+
+// 3. Save session (localStorage, cookie, state management, etc.)
+localStorage.setItem('session', session);
+localStorage.setItem('userId', user);
+
+// 4. Use session in all authenticated requests
+const session = localStorage.getItem('session');
+const createRes = await fetch('/api/Recipe/createRecipe', {
+  method: 'POST',
+  body: JSON.stringify({
+    session: session,  // ← Include session
+    title: 'My Recipe',
+    ingredients: [...],
+    steps: [...]
+  })
+});
+
+// 5. Logout (when user logs out)
+await fetch('/api/Sessioning/deleteSession', {
+  method: 'POST',
+  body: JSON.stringify({ session: session })
+});
+localStorage.removeItem('session');
+localStorage.removeItem('userId');
+```
+
+---
+
+### Common Request Patterns
+
+#### Creating Resources (Recipes, Notebooks, Annotations):
+
+```typescript
+// Pattern: session + resource data
+const response = await fetch('/api/Concept/action', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({
+    session: yourSessionToken, // ← Always include for protected endpoints
+    // ... resource-specific fields
+  }),
+})
+
+const result = await response.json()
+if (result.error) {
+  // Handle error
+  if (result.error === 'Invalid session') {
+    // Redirect to login
+  }
+} else {
+  // Success! result contains the resource ID
+  const resourceId = result.recipe || result.notebook || result.annotation
+}
+```
+
+#### Querying Data (No session needed):
+
+```typescript
+// Pattern: just the query parameters
+const response = await fetch('/api/Recipe/_getRecipeById', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({
+    recipe: recipeId, // No session needed for queries
+  }),
+})
+
+const result = await response.json()
+// result.recipe is an array of recipe objects
+```
+
+---
+
+### Endpoint Categories
+
+#### 🔓 Public Endpoints (No session needed):
+
+Use these for browsing, public access, login/registration:
+
+**Authentication:**
+
+- `/api/User/registerUser` - Register new user
+- `/api/User/login` - Login (returns session)
+- `/api/Sessioning/deleteSession` - Logout
+
+**Queries (read-only):**
+
+- All `/api/Recipe/_get*` and `/api/Recipe/_list*` endpoints
+- All `/api/Notebook/_get*` endpoints
+- All `/api/Annotation/_get*` endpoints
+- All `/api/User/_get*` endpoints
+
+#### 🔒 Protected Endpoints (Session required):
+
+Use these for creating new resources:
+
+- `/api/Recipe/createRecipe` - Create recipe
+- `/api/Recipe/draftRecipeWithAI` - Generate AI draft
+- `/api/Notebook/createNotebook` - Create notebook
+- `/api/Annotation/annotate` - Create annotation
+- `/api/Annotation/resolveAnnotation` - Resolve annotation
+
+#### 🔑 Authorized Endpoints (Session + ownership):
+
+Use these for modifying/deleting resources you own:
+
+**Recipes:**
+
+- `/api/Recipe/updateRecipeDetails` - Must own recipe
+- `/api/Recipe/deleteRecipe` - Must own recipe
+- `/api/Recipe/applyDraft` - Must own recipe
+
+**Notebooks:**
+
+- `/api/Notebook/inviteMember` - Must own notebook
+- `/api/Notebook/:notebookId/removeMember` - Must own notebook
+- `/api/Notebook/:notebookId/delete` - Must own notebook
+- `/api/Notebook/:notebookId/share` - Must own recipe OR be notebook member
+- `/api/Notebook/:notebookId/unshare` - Must own recipe OR own notebook
+
+**Annotations:**
+
+- `/api/Annotation/editAnnotation` - Must be annotation author
+- `/api/Annotation/deleteAnnotation` - Must be annotation author
+
+---
+
+### Error Handling Best Practices
+
+```typescript
+async function apiCall(endpoint, data) {
+  try {
+    const response = await fetch(`/api/${endpoint}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    })
+
+    const result = await response.json()
+
+    // Check for errors
+    if (result.error) {
+      // Handle specific errors
+      switch (result.error) {
+        case 'Invalid session':
+          // Session expired - redirect to login
+          redirectToLogin()
+          break
+        case 'Unauthorized to update this recipe':
+          // User doesn't have permission
+          showError('You do not have permission to edit this recipe')
+          break
+        default:
+          // Generic error handling
+          showError(result.error)
+      }
+      return null
+    }
+
+    // Success!
+    return result
+  } catch (error) {
+    // Network or parsing error
+    console.error('API call failed:', error)
+    showError('Network error - please try again')
+    return null
+  }
+}
+```
+
+---
+
+### AI Recipe Modification Workflow
+
+```typescript
+// Step 1: Generate AI draft
+const draft = await apiCall('Recipe/draftRecipeWithAI', {
+  session: sessionToken,
+  recipe: recipeId,
+  goal: 'make this vegan',
+})
+
+if (draft) {
+  // Step 2: Show draft to user for review
+  showDraftPreview({
+    ingredients: draft.ingredients,
+    steps: draft.steps,
+    notes: draft.notes,
+    confidence: draft.confidence,
+  })
+
+  // Step 3: User reviews and decides to apply
+  if (userApprovesDraft) {
+    const result = await apiCall('Recipe/applyDraft', {
+      session: sessionToken,
+      recipe: recipeId,
+      draftDetails: {
+        ingredients: draft.ingredients,
+        steps: draft.steps,
+        notes: draft.notes,
+      },
+    })
+
+    if (result) {
+      showSuccess('Recipe updated with AI suggestions!')
+    }
+  }
+}
+```
+
+---
+
+### Notebook Collaboration Workflow
+
+```typescript
+// Step 1: Create notebook
+const nb = await apiCall('Notebook/createNotebook', {
+  session: sessionToken,
+  title: 'Family Cookbook',
+})
+
+// Step 2: Invite family members
+await apiCall('Notebook/inviteMember', {
+  session: sessionToken,
+  notebook: nb.notebook,
+  member: familyMemberId,
+})
+
+// Step 3: Share recipes
+await fetch(`/api/Notebook/${nb.notebook}/share`, {
+  method: 'POST',
+  body: JSON.stringify({
+    session: sessionToken,
+    recipe: recipeId,
+  }),
+})
+
+// Step 4: Family members can view shared recipes
+const notebooks = await apiCall('Notebook/_getNotebooksWithMember', {
+  member: familyMemberId, // No session needed for queries
+})
+```
+
+---
+
+## 🔧 Development & Testing
+
+### Testing with cURL:
+
+```bash
+# Register
+curl -X POST http://localhost:10000/api/User/registerUser \
+  -H "Content-Type: application/json" \
+  -d '{"name":"Alice","username":"alice","password":"pass123"}'
+
+# Login (save the session token)
+curl -X POST http://localhost:10000/api/User/login \
+  -H "Content-Type: application/json" \
+  -d '{"username":"alice","password":"pass123"}'
+
+# Create Recipe (use session from login)
+curl -X POST http://localhost:10000/api/Recipe/createRecipe \
+  -H "Content-Type: application/json" \
+  -d '{"session":"YOUR_SESSION_TOKEN","title":"Test","ingredients":[{"name":"flour","quantity":"1","unit":"cup"}],"steps":[{"description":"Mix"}]}'
+```
+
+### Backend Requirements:
+
+**Environment Variables:**
+
+- `GEMINI_API_KEY` - Required for AI features (get from Google AI Studio)
+- `PORT` - Optional, defaults to 10000
+- `MONGODB_URI` - MongoDB connection string
+
+**Start Backend:**
+
+```bash
+cd nibble-backend
+deno run start
+```
+
+**Backend will log:**
+
+```
+🚀 Server running on http://localhost:10000
+✅ Connected to MongoDB
+✅ All syncs registered
+```
+
+---
+
+## ✅ Frontend Checklist
+
+Before integrating, make sure you:
+
+- [ ] Understand session-based authentication
+- [ ] Save session token after login
+- [ ] Include session in all protected endpoints
+- [ ] **Never send `author`/`owner`/`requester` fields**
+- [ ] Handle "Invalid session" errors by redirecting to login
+- [ ] Use public query endpoints for browsing (no session)
+- [ ] Test AI draft workflow (generate → review → apply)
+- [ ] Test notebook sharing workflow
+- [ ] Handle all error cases gracefully
+- [ ] Set `GEMINI_API_KEY` in backend .env for AI features
+
+---
+
+## 📞 Support & Documentation
+
+**Backend Implementation Details:**
+
+- See `SYNC_IMPLEMENTATION_MASTER_SUMMARY.md` for complete architecture
+- See `PASSTHROUGH_FIXES_COMPLETE.md` for security details
+- See `src/syncs/` for sync implementations
+
+**Quick Reference:**
+
+- **28 total endpoints** (7 Recipe + 10 Notebook + 6 Annotation + 4 User + 1 Session)
+- **All actions use POST** with JSON bodies
+- **Sessions expire** after 7 days
+- **AI features** require `GEMINI_API_KEY`
+
+---
+
+**Last Updated:** November 5, 2025  
+**Backend Status:** ✅ Production Ready  
+**All Sync Requirements:** ✅ Met  
+**Security:** ✅ Fully Implemented

@@ -69,8 +69,10 @@ export const useAuthStore = defineStore("auth", () => {
 		error.value = null;
 
 		try {
+			// Login returns { user: ID, session: SESSION_TOKEN }
 			const response = await userApi.login({ username, password });
-			const userId = response.user as ID;
+			const userId = response.user;
+			const sessionToken = response.session;
 
 			// Fetch user details using the improved API
 			const user = await userApi.getUserDetails(userId);
@@ -82,8 +84,8 @@ export const useAuthStore = defineStore("auth", () => {
 
 			currentUser.value = user;
 
-			// Store auth token and user data securely
-			userStorage.setAuthToken(userId);
+			// Store session token (NOT user ID) and user data securely
+			userStorage.setAuthToken(sessionToken);
 			userStorage.setUser(user);
 
 			// Setup cross-tab logout detection
@@ -120,29 +122,12 @@ export const useAuthStore = defineStore("auth", () => {
 		error.value = null;
 
 		try {
+			// Register returns { user: ID }
 			const response = await userApi.register({ name, username, password });
-			const userId = response.user as ID;
+			const userId = response.user;
 
-			// Fetch user details using the improved API
-			const user = await userApi.getUserDetails(userId);
-
-			// Ensure user has _id field
-			if (!user._id) {
-				user._id = userId;
-			}
-
-			currentUser.value = user;
-
-			// Store auth token and user data securely
-			userStorage.setAuthToken(userId);
-			userStorage.setUser(user);
-
-			// Setup cross-tab logout detection
-			if (!cleanupStorageListener) {
-				cleanupStorageListener = setupStorageListener(() => {
-					logout();
-				});
-			}
+			// After registration, log in to get session token
+			await login(username, password);
 		} catch (err) {
 			if (err instanceof ApiError) {
 				error.value = getErrorMessage(err);
@@ -197,9 +182,24 @@ export const useAuthStore = defineStore("auth", () => {
 		}
 	}
 
-	function logout(): void {
+	async function logout(): Promise<void> {
+		const sessionToken = userStorage.getAuthToken();
+
+		// Clear local state first
 		currentUser.value = null;
 		error.value = null;
+
+		// Call backend to destroy session if we have a token
+		if (sessionToken) {
+			try {
+				await userApi.logout(sessionToken);
+			} catch (err) {
+				console.error("Failed to destroy session on backend:", err);
+				// Continue with local logout even if backend call fails
+			}
+		}
+
+		// Clear storage
 		userStorage.clearAuth();
 
 		// Cleanup storage listener
@@ -297,7 +297,6 @@ export const useAuthStore = defineStore("auth", () => {
 			throw err;
 		}
 	}
-
 
 	async function getUserIDByUsername(username: string): Promise<ID> {
 		try {

@@ -109,6 +109,7 @@ export interface VersionDraft {
 	requester: ID;
 	baseRecipe: ID;
 	goal: string;
+	title?: string; // AI-suggested title
 	ingredients: Ingredient[];
 	steps: Step[];
 	notes: string;
@@ -121,6 +122,7 @@ export interface VersionDraftCreate {
 	requester: string;
 	baseRecipe: string;
 	goal: string;
+	title?: string; // AI-suggested title
 	ingredients: Ingredient[];
 	steps: Step[];
 	notes: string;

@@ -23,12 +23,12 @@
   --vt-c-text-dark-2: rgba(235, 235, 235, 0.64);
 
   /* Brand palette */
-  --brand-teal-100: #b8dcdb; /* light teal */
   --brand-gold-500: #ed9e0d; /* gold */
   --brand-blue-400: #5892a8; /* blue */
   --brand-orange-500: #fa8428; /* orange */
   --brand-indigo-500: #5278b0; /* indigo */
   --brand-burnt-500: #d35d2b; /* burnt orange */
+  --brand-green-100: #08ac47;
 }
 
 /* semantic color variables for this project */
@@ -50,7 +50,7 @@
   --color-secondary: var(--brand-blue-400);
   --color-accent: var(--brand-orange-500);
   --color-warning: var(--brand-gold-500);
-  --color-success: var(--brand-teal-100);
+  --color-success: var(--brand-green-100);
   --color-danger: var(--brand-burnt-500);
 }
 

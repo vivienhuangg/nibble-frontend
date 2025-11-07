@@ -3,6 +3,15 @@
     <div class="recipe-header">
       <h3>{{ recipe.title }}</h3>
       <div class="recipe-meta">
+        <button
+          v-if="canDelete"
+          type="button"
+          class="card-delete-btn"
+          :aria-label="`Delete ${recipe.title}`"
+          @click.stop="handleDeleteClick"
+        >
+          <Trash2 :size="16" :stroke-width="2" />
+        </button>
         <span class="version-info" v-if="versionInfo"> v{{ versionInfo.versionNum }} </span>
         <span class="author-info" v-if="versionInfo"> by {{ versionInfo.author }} </span>
       </div>
@@ -14,21 +23,21 @@
 
     <div class="recipe-stats">
       <div class="stat">
-        <span class="stat-icon">🥘</span>
-        <span>{{ recipe.ingredients.length }} ingredients</span>
+        <ListOrdered :size="16" :stroke-width="2" class="stat-icon" />
+        <span>{{ ingredientCount }} ingredients</span>
       </div>
       <div class="stat">
-        <span class="stat-icon">👨‍🍳</span>
-        <span>{{ recipe.steps.length }} steps</span>
+        <ChefHat :size="16" :stroke-width="2" class="stat-icon" />
+        <span>{{ stepCount }} steps</span>
       </div>
       <div class="stat" v-if="forkCount && forkCount > 0">
-        <span class="stat-icon">🍴</span>
+        <GitFork :size="16" :stroke-width="2" class="stat-icon" />
         <span>{{ forkCount }} forks</span>
       </div>
     </div>
 
-    <div v-if="recipe.tags && recipe.tags.length > 0" class="recipe-tags">
-      <span v-for="tag in recipe.tags" :key="tag" class="tag">
+    <div v-if="tags.length > 0" class="recipe-tags">
+      <span v-for="tag in tags" :key="tag" class="tag">
         {{ tag }}
       </span>
     </div>
@@ -39,14 +48,16 @@
 
     <!-- Annotations indicator -->
     <div v-if="annotationCount && annotationCount > 0" class="annotations-indicator">
-      <span class="annotation-icon">💬</span>
+      <MessageCircle :size="14" :stroke-width="2" class="annotation-icon" />
       <span>{{ annotationCount }} comments</span>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
+import { computed } from 'vue'
 import { useRouter } from 'vue-router'
+import { ChefHat, GitFork, ListOrdered, MessageCircle, Trash2 } from 'lucide-vue-next'
 import type { Recipe, Version } from '@/types/api'
 
 interface Props {
@@ -55,21 +66,31 @@ interface Props {
   forkCount?: number
   annotationCount?: number
   isFavorited?: boolean
+  canDelete?: boolean
 }
 
 interface Emits {
   (e: 'favorite-toggled', recipeId: string): void
   (e: 'share-requested', recipe: Recipe): void
+  (e: 'delete-requested', recipe: Recipe): void
 }
 
 const props = withDefaults(defineProps<Props>(), {
   forkCount: 0,
   annotationCount: 0,
   isFavorited: false,
+  canDelete: false,
 })
 
 const emit = defineEmits<Emits>()
 const router = useRouter()
+
+const ingredients = computed(() => (Array.isArray(props.recipe.ingredients) ? props.recipe.ingredients : []))
+const steps = computed(() => (Array.isArray(props.recipe.steps) ? props.recipe.steps : []))
+const tags = computed(() => (Array.isArray(props.recipe.tags) ? props.recipe.tags : []))
+
+const ingredientCount = computed(() => ingredients.value.length)
+const stepCount = computed(() => steps.value.length)
 
 function viewRecipe() {
   router.push(`/recipe/${props.recipe._id}`)
@@ -81,6 +102,10 @@ function toggleFavorite() {
 
 function shareRecipe() {
   emit('share-requested', props.recipe)
+}
+
+function handleDeleteClick() {
+  emit('delete-requested', props.recipe)
 }
 
 function formatDate(dateString: string): string {
@@ -95,21 +120,34 @@ function formatDate(dateString: string): string {
 
 <style scoped>
 .recipe-card {
-  background: white;
+  background-color: #fff;
   border-radius: 12px;
   padding: 20px;
-  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
   cursor: pointer;
-  transition:
-    transform 0.2s,
-    box-shadow 0.2s;
   position: relative;
   border: 1px solid #e1e5e9;
+  overflow: hidden;
+  transition:
+    transform 0.2s ease,
+    box-shadow 0.2s ease,
+    border-color 0.2s ease;
 }
 
-.recipe-card:hover {
+.recipe-card:hover,
+.recipe-card:focus-visible {
+  transform: translateY(-4px);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+  border-color: transparent;
+  box-shadow:
+    0 8px 24px rgba(0, 0, 0, 0.12),
+    0 0 0 2px rgba(99, 102, 241, 0.25);
+}
+
+.recipe-card:focus-visible {
+  outline: none;
   transform: translateY(-2px);
-  box-shadow: 0 8px 15px rgba(0, 0, 0, 0.15);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.1);
 }
 
 .recipe-header {
@@ -136,6 +174,7 @@ function formatDate(dateString: string): string {
   font-size: 12px;
   color: #666;
   white-space: nowrap;
+  gap: 4px;
 }
 
 .version-info {
@@ -173,7 +212,7 @@ function formatDate(dateString: string): string {
 }
 
 .stat-icon {
-  font-size: 14px;
+  flex-shrink: 0;
 }
 
 .recipe-tags {
@@ -273,7 +312,24 @@ function formatDate(dateString: string): string {
 }
 
 .annotation-icon {
-  font-size: 12px;
+  flex-shrink: 0;
+}
+
+.card-delete-btn {
+  background: none;
+  border: none;
+  color: var(--color-danger);
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 6px;
+  transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+.card-delete-btn:hover,
+.card-delete-btn:focus-visible {
+  background-color: rgba(211, 93, 43, 0.12);
+  color: var(--color-danger);
+  outline: none;
 }
 
 @media (max-width: 768px) {

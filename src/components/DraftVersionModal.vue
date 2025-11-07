@@ -8,17 +8,12 @@
         </div>
 
         <div class="modal-body">
-          <p class="prompt-help">
-            Ask the AI to modify this recipe. For example: "make it vegan", "reduce calories", or
-            "double the serving size".
-          </p>
-
           <div class="form-group">
-            <label for="goal">What changes would you like?</label>
+            <label for="goal">What would you like to create or change?</label>
             <textarea
               id="goal"
               v-model="goal"
-              placeholder="e.g., make it vegan, reduce sugar, add more spice..."
+              placeholder="e.g., I have chicken and broccoli - what can I make?"
               rows="4"
               class="goal-input"
             ></textarea>
@@ -82,7 +77,7 @@ async function generateDraft() {
     }
 
     // Call the draftRecipeWithAI API
-    const response = await recipeApi.draftRecipeWithAI(authStore.userId, props.recipeId, goal.value)
+    const response = await recipeApi.draftRecipeWithAI(props.recipeId, goal.value)
 
     // Log the raw response from the AI
     console.log('🤖 Raw AI Response:', response)
@@ -411,7 +406,6 @@ async function generateDraft() {
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 50%;
   flex-shrink: 0;
 }
 

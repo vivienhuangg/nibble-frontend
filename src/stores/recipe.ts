@@ -62,34 +62,15 @@ export const useRecipeStore = defineStore("recipe", () => {
 	async function createRecipe(
 		recipeData: Omit<RecipeCreate, "owner">,
 	): Promise<ID> {
-		// Debug logging to understand the auth state
-		console.log(
-			"🔍 createRecipe - authStore.isAuthenticated:",
-			authStore.isAuthenticated,
-		);
-		console.log("🔍 createRecipe - authStore.userId:", authStore.userId);
-		console.log(
-			"🔍 createRecipe - authStore.currentUser:",
-			authStore.currentUser,
-		);
-		console.log(
-			"🔍 createRecipe - currentUser._id:",
-			authStore.currentUser?._id,
-		);
-
-		// Get userId from multiple sources for robustness
-		const userId = authStore.userId || authStore.currentUser?._id;
-
-		if (!userId) {
-			console.error("🔍 createRecipe - No userId found!");
+		if (!authStore.isAuthenticated) {
 			throw new Error("User must be logged in to create recipes");
 		}
 
-		console.log("🔍 createRecipe - Using userId:", userId);
-
-		// Validate input before making API call
-		const fullRecipeData = { ...recipeData, owner: userId };
-		const validation = validateRecipeCreate(fullRecipeData);
+		// Validate input before making API call (excluding owner field)
+		const validation = validateRecipeCreate({
+			...recipeData,
+			owner: "dummy",
+		}); // Dummy owner for validation
 		if (!validation.isValid) {
 			error.value = formatValidationErrors(validation.errors);
 			throw new Error(error.value);
@@ -99,12 +80,13 @@ export const useRecipeStore = defineStore("recipe", () => {
 		error.value = null;
 
 		try {
-			const response = await recipeApi.createRecipe(fullRecipeData);
+			// Backend derives owner from session token
+			const response = await recipeApi.createRecipe(recipeData);
 
 			// Refresh user recipes
 			await loadUserRecipes();
 
-			return response.recipe as ID;
+			return response.recipe;
 		} catch (err) {
 			if (err instanceof ApiError) {
 				error.value = getErrorMessage(err);
@@ -205,14 +187,14 @@ export const useRecipeStore = defineStore("recipe", () => {
 		recipeId: ID,
 		updates: Omit<RecipeUpdate, "owner" | "recipe">,
 	): Promise<void> {
-		if (!authStore.userId) {
+		if (!authStore.isAuthenticated) {
 			throw new Error("User must be logged in to update recipes");
 		}
 
 		// Validate input before making API call
 		const fullUpdateData = {
 			...updates,
-			owner: authStore.userId,
+			owner: "dummy", // Dummy for validation
 			recipe: recipeId,
 		};
 		const validation = validateRecipeUpdate(fullUpdateData);
@@ -225,7 +207,8 @@ export const useRecipeStore = defineStore("recipe", () => {
 		error.value = null;
 
 		try {
-			await recipeApi.updateRecipeDetails(fullUpdateData);
+			// Backend derives owner from session token
+			await recipeApi.updateRecipeDetails({ ...updates, recipe: recipeId });
 
 			// Refresh the recipe
 			await loadRecipeById(recipeId);
@@ -244,7 +227,7 @@ export const useRecipeStore = defineStore("recipe", () => {
 	}
 
 	async function deleteRecipe(recipeId: ID): Promise<void> {
-		if (!authStore.userId) {
+		if (!authStore.isAuthenticated) {
 			throw new Error("User must be logged in to delete recipes");
 		}
 
@@ -252,7 +235,8 @@ export const useRecipeStore = defineStore("recipe", () => {
 		error.value = null;
 
 		try {
-			await recipeApi.deleteRecipe(authStore.userId, recipeId);
+			// Backend derives requester from session token
+			await recipeApi.deleteRecipe(recipeId);
 
 			// Remove from local state
 			recipes.value = recipes.value.filter((recipe) => recipe._id !== recipeId);
@@ -381,6 +365,130 @@ export const useRecipeStore = defineStore("recipe", () => {
 		currentRecipe.value = null;
 	}
 
+	async function getForkCount(recipeId: ID): Promise<number> {
+		isLoading.value = true;
+		error.value = null;
+
+		try {
+			const response = await recipeApi.getForkCount(recipeId);
+			return response.count;
+		} catch (err) {
+			if (err instanceof ApiError) {
+				error.value = getErrorMessage(err);
+			} else {
+				error.value = "Failed to get fork count. Please try again.";
+			}
+			return 0;
+		} finally {
+			isLoading.value = false;
+		}
+	}
+
+	async function listForksOfRecipe(recipeId: ID): Promise<Recipe[]> {
+		isLoading.value = true;
+		error.value = null;
+
+		try {
+			const forks = await recipeApi.listForksOfRecipe(recipeId);
+			return forks;
+		} catch (err) {
+			if (err instanceof ApiError) {
+				error.value = getErrorMessage(err);
+			} else {
+				error.value = "Failed to load forks. Please try again.";
+			}
+			return [];
+		} finally {
+			isLoading.value = false;
+		}
+	}
+
+	async function draftRecipeWithAI(
+		recipeId: ID,
+		goal: string,
+	): Promise<{
+		draftId: ID;
+		baseRecipe: ID;
+		requester: ID;
+		goal: string;
+		ingredients: Array<{
+			name: string;
+			quantity: string;
+			unit?: string;
+			notes?: string;
+		}>;
+		steps: Array<{
+			description: string;
+			notes?: string;
+		}>;
+		notes: string;
+		confidence: number;
+		created: string;
+		expires: string;
+	} | null> {
+		if (!authStore.isAuthenticated) {
+			throw new Error("User must be logged in to draft recipes with AI");
+		}
+
+		isLoading.value = true;
+		error.value = null;
+
+		try {
+			const draft = await recipeApi.draftRecipeWithAI(recipeId, goal);
+			return draft;
+		} catch (err) {
+			if (err instanceof ApiError) {
+				error.value = getErrorMessage(err);
+			} else {
+				error.value = "Failed to draft recipe with AI. Please try again.";
+			}
+			throw err;
+		} finally {
+			isLoading.value = false;
+		}
+	}
+
+	async function applyDraft(
+		recipeId: ID,
+		draftDetails: {
+			ingredients: Array<{
+				name: string;
+				quantity: string;
+				unit?: string;
+				notes?: string;
+			}>;
+			steps: Array<{
+				description: string;
+				notes?: string;
+			}>;
+			notes: string;
+		},
+	): Promise<void> {
+		if (!authStore.isAuthenticated) {
+			throw new Error("User must be logged in to apply drafts");
+		}
+
+		isLoading.value = true;
+		error.value = null;
+
+		try {
+			await recipeApi.applyDraft(recipeId, draftDetails);
+
+			// Refresh the recipe after applying draft
+			await loadRecipeById(recipeId);
+			await loadUserRecipes();
+		} catch (err) {
+			if (err instanceof ApiError) {
+				error.value = getErrorMessage(err);
+			} else {
+				error.value = "Failed to apply draft. Please try again.";
+			}
+			throw err;
+		} finally {
+			isLoading.value = false;
+		}
+	}
+
 	return {
 		// State
 		recipes,
@@ -402,6 +510,10 @@ export const useRecipeStore = defineStore("recipe", () => {
 		addTag,
 		removeTag,
 		searchByTag,
+		getForkCount,
+		listForksOfRecipe,
+		draftRecipeWithAI,
+		applyDraft,
 		clearError,
 		clearCurrentRecipe,
 	};

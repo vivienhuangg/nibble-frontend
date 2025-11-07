@@ -1,6 +1,53 @@
 <template>
   <div class="recipe-view">
-    <div v-if="isLoading" class="loading">Loading recipe...</div>
+    <div v-if="isLoading" class="recipe-content skeleton" role="status" aria-live="polite">
+      <span class="sr-only">Loading recipe...</span>
+
+      <div class="recipe-info">
+        <div class="title-row">
+          <div class="skeleton-title shimmer"></div>
+          <div class="save-indicator">
+            <div class="skeleton-pill shimmer"></div>
+          </div>
+          <div class="header-actions">
+            <div class="skeleton-button shimmer"></div>
+            <div class="skeleton-button shimmer"></div>
+            <div class="skeleton-button shimmer"></div>
+          </div>
+        </div>
+
+        <div class="skeleton-line shimmer"></div>
+        <div class="skeleton-line shimmer short"></div>
+
+        <div class="recipe-meta skeleton-meta">
+          <div class="skeleton-pill shimmer wide"></div>
+          <div class="skeleton-pill shimmer"></div>
+          <div class="skeleton-pill shimmer"></div>
+        </div>
+
+        <div class="recipe-tags skeleton-tags">
+          <div class="skeleton-pill shimmer"></div>
+          <div class="skeleton-pill shimmer"></div>
+          <div class="skeleton-pill shimmer"></div>
+        </div>
+      </div>
+
+      <div class="content-grid skeleton-grid">
+        <section class="ingredients-section">
+          <div class="skeleton-section-title shimmer"></div>
+          <div class="skeleton-list">
+            <div v-for="n in 4" :key="`ingredient-${n}`" class="skeleton-list-item shimmer"></div>
+          </div>
+        </section>
+
+        <section class="steps-section">
+          <div class="skeleton-section-title shimmer"></div>
+          <div class="skeleton-list">
+            <div v-for="n in 3" :key="`step-${n}`" class="skeleton-list-block shimmer"></div>
+          </div>
+        </section>
+      </div>
+    </div>
 
     <div v-else-if="error" class="error-message">
       {{ error }}
@@ -10,87 +57,93 @@
       <!-- Recipe Title and Meta -->
       <div class="recipe-info">
         <div class="title-row">
-          <h1
-            v-if="!editingTitle"
-            @click="startEditingTitle"
-            @mouseenter="showEditHint = 'title'"
-            @mouseleave="showEditHint = null"
-            class="editable-title plain-title"
-            :class="{ 'can-edit': isOwnRecipe && editMode }"
-          >
+          <!-- View Mode: Show title as heading -->
+          <h1 v-if="!editMode || !isOwnRecipe" class="plain-title">
             {{ currentRecipe.title }}
-            <span v-if="showEditHint === 'title' && isOwnRecipe && editMode" class="edit-hint"
-              >✏️</span
-            >
           </h1>
+
+          <!-- Edit Mode: Show editable input -->
           <input
             v-else
             v-model="editingTitleValue"
-            @blur="saveTitle"
-            @keydown.enter="saveTitle"
-            @keydown.escape="cancelEditTitle"
-            class="plain-title-input"
-            ref="titleInput"
+            @input="hasUnsavedChanges = true"
+            :class="[
+              'plain-title-input',
+              currentDraft && isTitleModified ? 'draft-field-highlight' : '',
+            ]"
+            placeholder="Recipe title"
           />
 
           <!-- Save indicator -->
           <div v-if="isOwnRecipe" class="save-indicator">
-            <span v-if="isSaving" class="saving-indicator">💾 Saving...</span>
-            <span v-else-if="hasUnsavedChanges" class="unsaved-indicator">● Draft</span>
-            <span v-else class="saved-indicator">✓ Saved</span>
+            <span v-if="isSaving" class="saving-indicator">
+              <Save :size="16" :stroke-width="2" />
+              Saving...
+            </span>
+            <span v-else-if="hasUnsavedChanges" class="unsaved-indicator">
+              <CircleDot :size="16" :stroke-width="2" />
+              Draft
+            </span>
+            <span v-else class="saved-indicator">
+              <Check :size="16" :stroke-width="2" />
+              Saved
+            </span>
           </div>
 
           <div class="header-actions">
             <button v-if="isOwnRecipe && editMode" @click="showDraftModal = true" class="draft-btn">
               AI Draft
             </button>
-            <button @click="toggleEditMode" class="edit-mode-btn" :class="{ active: editMode }">
+            <button
+              v-if="isOwnRecipe"
+              @click="toggleEditMode"
+              class="edit-mode-btn"
+              :class="{ active: editMode }"
+            >
               {{ editMode ? 'Save' : 'Edit' }}
             </button>
             <button
+              v-if="!isOwnRecipe"
               @click="forkRecipe"
-              :disabled="isOwnRecipe"
-              :title="
-                isOwnRecipe ? 'You can\'t fork your own recipe!' : 'Create a copy of this recipe'
-              "
+              :title="'Create a copy of this recipe'"
               class="fork-btn"
-              :class="{ disabled: isOwnRecipe }"
             >
               Fork
             </button>
             <button @click="shareRecipe" class="share-btn">Add to Cookbook</button>
+            <button
+              v-if="isOwnRecipe"
+              @click="deleteRecipe"
+              class="delete-btn"
+              title="Delete recipe"
+            >
+              <Trash2 :size="18" />
+            </button>
           </div>
+
+          <p v-if="!isOwnRecipe" class="read-only-notice">
+            This recipe was shared with you. Fork it to create your own editable copy.
+          </p>
         </div>
 
+        <!-- View Mode: Show description as text -->
         <div
-          v-if="!editingDescription && currentRecipe.description"
-          @click="startEditingDescription"
-          @mouseenter="showEditHint = 'description'"
-          @mouseleave="showEditHint = null"
-          class="editable-description plain-description"
-          :class="{ 'can-edit': isOwnRecipe && editMode }"
+          v-if="(!editMode || !isOwnRecipe) && currentRecipe.description"
+          class="plain-description"
+          :class="{ 'draft-field-highlight': currentDraft && isDescriptionModified }"
         >
           {{ currentRecipe.description }}
-          <span v-if="showEditHint === 'description' && isOwnRecipe && editMode" class="edit-hint"
-            >✏️</span
-          >
         </div>
+
+        <!-- Edit Mode: Show editable textarea -->
         <textarea
-          v-else-if="editingDescription"
+          v-else-if="editMode && isOwnRecipe"
           v-model="editingDescriptionValue"
-          @blur="saveDescription"
-          @keydown.escape="cancelEditDescription"
-          @input="autoExpandTextarea($event)"
-          class="plain-description-input"
-          ref="descriptionInput"
-          rows="3"
-        ></textarea>
-        <textarea
-          v-else-if="!currentRecipe.description && isOwnRecipe && editMode"
-          @click="startEditingDescription"
-          @focus="startEditingDescription"
-          @input="autoExpandTextarea($event)"
-          class="plain-description-input"
+          @input="handleDescriptionInput"
+          :class="[
+            'plain-description-input',
+            currentDraft && isDescriptionModified ? 'draft-field-highlight' : '',
+          ]"
           placeholder="Recipe description (optional)"
           rows="3"
         ></textarea>
@@ -100,13 +153,15 @@
             <span class="recipe-author"> by {{ authorName }}</span>
             <span class="recipe-date">{{ formatDate(currentRecipe.updated) }}</span>
             <div v-if="cookbooksContainingRecipe.length > 0" class="cookbook-info">
-              <span
+              <button
                 v-for="notebook in cookbooksContainingRecipe"
                 :key="notebook._id"
+                type="button"
                 class="cookbook-badge"
+                @click="navigateToCookbook(notebook._id)"
               >
                 {{ notebook.title }}
-              </span>
+              </button>
             </div>
           </div>
 
@@ -121,31 +176,22 @@
             {{ tag }}
           </span>
         </div>
-
-        <div v-if="sharedUsers.length > 0" class="sharing-info">
-          <span class="sharing-label">Currently shared with:</span>
-          <div class="shared-users">
-            <span v-for="user in sharedUsers" :key="user._id" class="shared-user">
-              {{ user.name }}
-            </span>
-          </div>
-        </div>
       </div>
 
       <!-- Draft Status Banner -->
       <div v-if="currentDraft" class="draft-banner">
         <div class="draft-banner-content">
           <div class="draft-info">
-            <span class="draft-label">✨ AI Draft Preview</span>
+            <span class="draft-label">
+              <Sparkles :size="16" :stroke-width="2" />
+              AI Draft Preview
+            </span>
             <span class="draft-confidence" :class="getDraftConfidenceClass()"
               >{{ Math.round(currentDraft.confidence * 100) }}% confidence</span
             >
           </div>
           <div class="draft-actions">
-            <button @click="discardDraft" class="discard-draft-btn">Discard</button>
-            <button @click="acceptDraft" :disabled="isAcceptingDraft" class="accept-draft-btn">
-              {{ isAcceptingDraft ? 'Applying...' : 'Accept & Apply Changes' }}
-            </button>
+            <button @click="discardDraft" class="discard-draft-btn">Discard AI Draft</button>
           </div>
         </div>
         <div v-if="currentDraft.notes" class="draft-notes">
@@ -175,7 +221,10 @@
               <div
                 v-for="(ingredient, index) in localIngredients"
                 :key="index"
-                class="ingredient-item"
+                :class="[
+                  'ingredient-item',
+                  currentDraft ? getIngredientChangeClass(index, localIngredients) : '',
+                ]"
               >
                 <input
                   v-model="ingredient.quantity"
@@ -215,8 +264,10 @@
               <div
                 v-for="(ingredient, index) in displayIngredients"
                 :key="index"
-                class="ingredient-item"
-                :class="currentDraft ? getIngredientChangeClass(index) : ''"
+                :class="[
+                  'ingredient-item',
+                  currentDraft ? getIngredientChangeClass(index, displayIngredients) : '',
+                ]"
                 @click="handleAnnotationClick('Ingredient', index, $event)"
               >
                 <div class="ingredient-content">
@@ -244,7 +295,11 @@
           <div class="steps-list">
             <!-- Edit Mode: Always show inputs -->
             <template v-if="isOwnRecipe && editMode">
-              <div v-for="(step, index) in localSteps" :key="index" class="step-item">
+              <div
+                v-for="(step, index) in localSteps"
+                :key="index"
+                :class="['step-item', currentDraft ? getStepChangeClass(index, localSteps) : '']"
+              >
                 <div class="step-number">{{ index + 1 }}</div>
                 <textarea
                   v-model="step.description"
@@ -269,8 +324,7 @@
               <div
                 v-for="(step, index) in displaySteps"
                 :key="index"
-                class="step-item"
-                :class="currentDraft ? getStepChangeClass(index) : ''"
+                :class="['step-item', currentDraft ? getStepChangeClass(index, displaySteps) : '']"
                 @click="handleAnnotationClick('Step', index, $event)"
               >
                 <div class="step-number">{{ index + 1 }}</div>
@@ -374,7 +428,8 @@
 
               <div class="notebook-actions">
                 <span v-if="isRecipeInNotebook(notebook)" class="already-shared-badge">
-                  ✓ Already in cookbook
+                  <Check :size="14" :stroke-width="2" />
+                  Already in cookbook
                 </span>
                 <button
                   v-else
@@ -408,6 +463,7 @@
 </template>
 
 <script setup lang="ts">
+import { Check, CircleDot, Save, Sparkles, Trash2 } from 'lucide-vue-next'
 import { computed, nextTick, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { recipeApi } from '@/services/api'
@@ -415,9 +471,21 @@ import { useAnnotationStore } from '@/stores/annotation'
 import { useAuthStore } from '@/stores/auth'
 import { useNotebookStore } from '@/stores/notebook'
 import { useRecipeStore } from '@/stores/recipe'
-import type { Notebook, User, VersionDraft } from '@/types/api'
+import type { Ingredient, Notebook, RecipeUpdate, Step, User, VersionDraft } from '@/types/api'
 import AnnotationSystem from './AnnotationSystem.vue'
 import DraftVersionModal from './DraftVersionModal.vue'
+
+type IngredientComparable = Partial<Ingredient> & {
+  name?: string | null
+  quantity?: string | null
+  unit?: string | null
+  notes?: string | null
+}
+
+type StepComparable = Partial<Step> & {
+  description?: string | null
+  notes?: string | null
+}
 
 const route = useRoute()
 const router = useRouter()
@@ -474,7 +542,7 @@ const activeAnnotation = ref<{
 } | null>(null)
 const annotationPosition = ref<{ x: number; y: number } | null>(null)
 
-const isLoading = computed(() => recipeStore.isLoading || annotationStore.isLoading)
+const isLoading = computed(() => recipeStore.isLoading)
 const error = computed(() => recipeStore.error)
 const currentRecipe = computed(() => recipeStore.currentRecipe)
 const currentNotebook = computed(() => notebookStore.currentNotebook)
@@ -510,12 +578,28 @@ const isOwnRecipe = computed(() => {
 })
 
 // Base ingredients/steps for comparison (what was there before the draft)
-const baseIngredients = computed(() => {
+const baseIngredients = computed<Ingredient[]>(() => {
   return currentRecipe.value?.ingredients || []
 })
 
-const baseSteps = computed(() => {
+const baseSteps = computed<Step[]>(() => {
   return currentRecipe.value?.steps || []
+})
+
+const isTitleModified = computed(() => {
+  if (!currentDraft.value) return false
+  const baseTitle =
+    typeof currentRecipe.value?.title === 'string' ? currentRecipe.value.title.trim() : ''
+  return editingTitleValue.value.trim() !== baseTitle
+})
+
+const isDescriptionModified = computed(() => {
+  if (!currentDraft.value) return false
+  const baseDescription =
+    typeof currentRecipe.value?.description === 'string'
+      ? currentRecipe.value.description.trim()
+      : ''
+  return editingDescriptionValue.value.trim() !== baseDescription
 })
 
 const isInCurrentCookbook = computed(() => {
@@ -530,7 +614,7 @@ function isRecipeInNotebook(notebook: Notebook): boolean {
 
 function goBack() {
   if (currentNotebook.value) {
-    router.push(`/cookbook/${currentNotebook.value._id}`)
+    router.push(`/cookbooks/${currentNotebook.value._id}`)
   } else {
     router.push('/recipes')
   }
@@ -540,18 +624,22 @@ function shareRecipe() {
   showShareModal.value = true
 }
 
+function navigateToCookbook(notebookId: string) {
+  router.push(`/cookbooks/${notebookId}`)
+}
+
 async function forkRecipe() {
   if (!currentRecipe.value || !authStore.userId || isOwnRecipe.value) return
 
   try {
     // Create a new recipe based on the current one (fork)
+    // Owner is derived from session by backend
     const forkedRecipe = {
       title: `${currentRecipe.value.title} (Fork)`,
       description: currentRecipe.value.description,
       ingredients: currentRecipe.value.ingredients,
       steps: currentRecipe.value.steps,
       tags: [...(currentRecipe.value.tags || [])],
-      owner: authStore.userId,
       forkedFrom: currentRecipe.value._id,
     }
 
@@ -571,9 +659,43 @@ async function forkRecipe() {
   }
 }
 
+async function deleteRecipe() {
+  if (!currentRecipe.value || !authStore.userId || !isOwnRecipe.value) return
+
+  // Show confirmation dialog
+  const confirmDelete = window.confirm(
+    `Are you sure you want to delete "${currentRecipe.value.title}"? This action cannot be undone.`,
+  )
+
+  if (!confirmDelete) return
+
+  try {
+    console.log('🗑️ Deleting recipe:', currentRecipe.value._id)
+
+    // Call the recipe API to delete the recipe
+    await recipeApi.deleteRecipe(currentRecipe.value._id)
+
+    console.log('🗑️ Recipe deleted successfully')
+
+    // Navigate back to cookbook or home
+    if (currentNotebook.value) {
+      router.push(`/cookbooks/${currentNotebook.value._id}`)
+    } else {
+      router.push('/')
+    }
+  } catch (error) {
+    console.error('Failed to delete recipe:', error)
+    alert(`Failed to delete recipe: ${error instanceof Error ? error.message : 'Unknown error'}`)
+  }
+}
+
 // Initialize local state from recipe data (only when entering edit mode)
 function initializeLocalState() {
   if (!currentRecipe.value) return
+
+  // Initialize title and description
+  editingTitleValue.value = currentRecipe.value.title || ''
+  editingDescriptionValue.value = currentRecipe.value.description || ''
 
   // Initialize local ingredients
   localIngredients.value = (currentRecipe.value.ingredients || []).map((ing) => ({
@@ -598,15 +720,86 @@ function handleDraftReady(draft: VersionDraft) {
   currentDraft.value = draft
   showDraftModal.value = false
 
-  // Exit edit mode so draft preview can be shown immediately
-  // Note: We don't save changes here because the draft is based on the saved recipe
-  if (editMode.value) {
-    editMode.value = false
-    // Clear unsaved changes flag since we're showing the draft preview
-    hasUnsavedChanges.value = false
+  // Enter edit mode and load draft into editable fields
+  if (!editMode.value) {
+    editMode.value = true
   }
 
-  console.log('✅ currentDraft set to:', currentDraft.value)
+  // Use AI-suggested title if available, otherwise keep current title
+  if (draft.title?.trim()) {
+    editingTitleValue.value = draft.title
+  } else if (!editingTitleValue.value || editingTitleValue.value === currentRecipe.value?.title) {
+    editingTitleValue.value = currentRecipe.value?.title || ''
+  }
+
+  // Keep current description (AI doesn't typically change this)
+  if (
+    !editingDescriptionValue.value ||
+    editingDescriptionValue.value === currentRecipe.value?.description
+  ) {
+    editingDescriptionValue.value = currentRecipe.value?.description || ''
+  }
+
+  // Load draft ingredients into local state
+  localIngredients.value = draft.ingredients.map((ing) => ({
+    name: ing.name || '',
+    quantity: ing.quantity || '',
+    unit: ing.unit || '',
+    notes: ing.notes || '',
+  }))
+
+  // Add empty row for new ingredients
+  localIngredients.value.push({ name: '', quantity: '', unit: '', notes: '' })
+
+  // Load draft steps into local state
+  localSteps.value = draft.steps.map((step) => ({
+    description: step.description || '',
+    notes: step.notes || '',
+  }))
+
+  // Add empty row for new steps
+  localSteps.value.push({ description: '', notes: '' })
+
+  // Mark as having unsaved changes
+  hasUnsavedChanges.value = true
+
+  console.log('✅ Draft loaded into editable fields')
+
+  // Expand all textareas after render
+  nextTick(() => {
+    const descriptionTextarea = document.querySelector('.plain-description-input')
+    if (descriptionTextarea instanceof HTMLTextAreaElement) {
+      autoExpandTextarea({ target: descriptionTextarea } as unknown as Event)
+    }
+
+    const ingredientNames = document.querySelectorAll('.ingredient-name-input')
+    ingredientNames.forEach((textarea) => {
+      if (textarea instanceof HTMLTextAreaElement) {
+        autoExpandTextarea({ target: textarea } as unknown as Event)
+      }
+    })
+
+    const ingredientNotes = document.querySelectorAll('.ingredient-notes-input')
+    ingredientNotes.forEach((textarea) => {
+      if (textarea instanceof HTMLTextAreaElement) {
+        autoExpandTextarea({ target: textarea } as unknown as Event)
+      }
+    })
+
+    const stepDescriptions = document.querySelectorAll('.step-description-input')
+    stepDescriptions.forEach((textarea) => {
+      if (textarea instanceof HTMLTextAreaElement) {
+        autoExpandTextarea({ target: textarea } as unknown as Event)
+      }
+    })
+
+    const stepNotes = document.querySelectorAll('.step-notes-input')
+    stepNotes.forEach((textarea) => {
+      if (textarea instanceof HTMLTextAreaElement) {
+        autoExpandTextarea({ target: textarea } as unknown as Event)
+      }
+    })
+  })
 }
 
 function handleDraftClose() {
@@ -615,53 +808,109 @@ function handleDraftClose() {
 
 function discardDraft() {
   currentDraft.value = null
+  editMode.value = false
+  hasUnsavedChanges.value = false
+  // Reload original recipe data
+  if (currentRecipe.value) {
+    initializeLocalState()
+  }
 }
 
 // Comparison helpers for highlighting changes
-function getIngredientChangeType(index: number): 'added' | 'removed' | 'modified' | 'unchanged' {
-  if (!currentDraft.value) return 'unchanged'
-  const draftIng = currentDraft.value.ingredients[index]
-  const baseIng = baseIngredients.value[index]
+function normalizeText(value: unknown): string {
+  if (typeof value === 'number') return String(value)
+  if (typeof value === 'string') return value.trim()
+  return ''
+}
 
-  if (!baseIng) return 'added'
-  if (!draftIng) return 'removed'
+function hasIngredientContent(ingredient?: IngredientComparable): boolean {
+  if (!ingredient) return false
+  return (
+    normalizeText(ingredient.name) !== '' ||
+    normalizeText(ingredient.quantity) !== '' ||
+    normalizeText(ingredient.unit) !== '' ||
+    normalizeText(ingredient.notes) !== ''
+  )
+}
 
-  // Simple check for modifications
-  if (
-    draftIng.name !== baseIng.name ||
-    draftIng.quantity !== baseIng.quantity ||
-    draftIng.unit !== baseIng.unit
-  ) {
-    return 'modified'
+function ingredientsDiffer(
+  baseIng?: IngredientComparable,
+  updatedIng?: IngredientComparable,
+): boolean {
+  return (
+    normalizeText(baseIng?.name) !== normalizeText(updatedIng?.name) ||
+    normalizeText(baseIng?.quantity) !== normalizeText(updatedIng?.quantity) ||
+    normalizeText(baseIng?.unit) !== normalizeText(updatedIng?.unit) ||
+    normalizeText(baseIng?.notes) !== normalizeText(updatedIng?.notes)
+  )
+}
+
+function getIngredientChangeClass(index: number, comparisonList?: IngredientComparable[]): string {
+  if (!currentDraft.value) return ''
+
+  const list =
+    (comparisonList as IngredientComparable[] | undefined) ??
+    (currentDraft.value.ingredients as IngredientComparable[] | undefined) ??
+    []
+  const baseIngredient = baseIngredients.value[index] as IngredientComparable | undefined
+  const updatedIngredient = list[index]
+
+  const baseHasContent = hasIngredientContent(baseIngredient)
+  const updatedHasContent = hasIngredientContent(updatedIngredient)
+
+  if (!baseHasContent && !updatedHasContent) {
+    return ''
   }
 
-  return 'unchanged'
-}
-
-function getIngredientChangeClass(index: number): string {
-  const type = getIngredientChangeType(index)
-  return `change-${type}`
-}
-
-function getStepChangeType(index: number): 'added' | 'removed' | 'modified' | 'unchanged' {
-  if (!currentDraft.value) return 'unchanged'
-  const draftStep = currentDraft.value.steps[index]
-  const baseStep = baseSteps.value[index]
-
-  if (!baseStep) return 'added'
-  if (!draftStep) return 'removed'
-
-  // Simple check for modifications
-  if (draftStep.description !== baseStep.description) {
-    return 'modified'
+  if (baseHasContent !== updatedHasContent) {
+    return 'change-modified'
   }
 
-  return 'unchanged'
+  if (ingredientsDiffer(baseIngredient, updatedIngredient)) {
+    return 'change-modified'
+  }
+
+  return ''
 }
 
-function getStepChangeClass(index: number): string {
-  const type = getStepChangeType(index)
-  return `change-${type}`
+function hasStepContent(step?: StepComparable): boolean {
+  if (!step) return false
+  return normalizeText(step.description) !== '' || normalizeText(step.notes) !== ''
+}
+
+function stepsDiffer(baseStep?: StepComparable, updatedStep?: StepComparable): boolean {
+  return (
+    normalizeText(baseStep?.description) !== normalizeText(updatedStep?.description) ||
+    normalizeText(baseStep?.notes) !== normalizeText(updatedStep?.notes)
+  )
+}
+
+function getStepChangeClass(index: number, comparisonList?: StepComparable[]): string {
+  if (!currentDraft.value) return ''
+
+  const list =
+    (comparisonList as StepComparable[] | undefined) ??
+    (currentDraft.value.steps as StepComparable[] | undefined) ??
+    []
+  const baseStep = baseSteps.value[index] as StepComparable | undefined
+  const updatedStep = list[index]
+
+  const baseHasContent = hasStepContent(baseStep)
+  const updatedHasContent = hasStepContent(updatedStep)
+
+  if (!baseHasContent && !updatedHasContent) {
+    return ''
+  }
+
+  if (baseHasContent !== updatedHasContent) {
+    return 'change-modified'
+  }
+
+  if (stepsDiffer(baseStep, updatedStep)) {
+    return 'change-modified'
+  }
+
+  return ''
 }
 
 function getDraftConfidenceClass(): string {
@@ -688,7 +937,7 @@ async function acceptDraft() {
     return
   }
 
-  console.log('✅ Accepting draft:', {
+  console.log('✅ Saving draft changes:', {
     recipeId: currentRecipe.value._id,
     userId: authStore.userId,
   })
@@ -696,40 +945,31 @@ async function acceptDraft() {
   isAcceptingDraft.value = true
 
   try {
-    // Apply the draft to the original recipe
-    await recipeApi.applyDraft(authStore.userId, currentRecipe.value._id, {
-      ingredients: currentDraft.value.ingredients,
-      steps: currentDraft.value.steps,
+    // Filter out empty ingredients and steps
+    const filteredIngredients = localIngredients.value.filter((ing) => ing.name.trim() !== '')
+    const filteredSteps = localSteps.value.filter((step) => step.description.trim() !== '')
+
+    // Save the edited changes from local state
+    await recipeApi.applyDraft(currentRecipe.value._id, {
+      ingredients: filteredIngredients,
+      steps: filteredSteps,
       notes: currentDraft.value.notes,
     })
 
-    console.log('✅ Draft applied successfully')
+    console.log('✅ Draft changes saved successfully')
 
-    // Clear draft
+    // Clear draft and exit edit mode
     currentDraft.value = null
+    editMode.value = false
+    hasUnsavedChanges.value = false
 
     // Refresh recipe data
     await recipeStore.loadRecipeById(currentRecipe.value._id)
 
     console.log('✅ Recipe data refreshed')
-
-    // If in edit mode, update local state with the refreshed recipe data
-    if (editMode.value && currentRecipe.value) {
-      localIngredients.value = (currentRecipe.value.ingredients || []).map((ing) => ({
-        name: ing.name || '',
-        quantity: ing.quantity || '',
-        unit: ing.unit || '',
-        notes: ing.notes || '',
-      }))
-      localSteps.value = (currentRecipe.value.steps || []).map((step) => ({
-        description: step.description || '',
-        notes: step.notes || '',
-      }))
-      hasUnsavedChanges.value = false
-    }
   } catch (err) {
-    console.error('❌ Failed to apply draft:', err)
-    alert(`Failed to apply draft: ${err instanceof Error ? err.message : 'Unknown error'}`)
+    console.error('❌ Failed to save draft changes:', err)
+    alert(`Failed to save changes: ${err instanceof Error ? err.message : 'Unknown error'}`)
   } finally {
     isAcceptingDraft.value = false
   }
@@ -783,14 +1023,14 @@ function toggleEditMode() {
       const ingredientNames = document.querySelectorAll('.ingredient-name-input')
       ingredientNames.forEach((textarea) => {
         if (textarea instanceof HTMLTextAreaElement) {
-          autoExpandTextarea({ target: textarea } as Event)
+          autoExpandTextarea({ target: textarea } as unknown as Event)
         }
       })
 
       const ingredientNotes = document.querySelectorAll('.ingredient-notes-input')
       ingredientNotes.forEach((textarea) => {
         if (textarea instanceof HTMLTextAreaElement) {
-          autoExpandTextarea({ target: textarea } as Event)
+          autoExpandTextarea({ target: textarea } as unknown as Event)
         }
       })
 
@@ -798,14 +1038,14 @@ function toggleEditMode() {
       const stepDescriptions = document.querySelectorAll('.step-description-input')
       stepDescriptions.forEach((textarea) => {
         if (textarea instanceof HTMLTextAreaElement) {
-          autoExpandTextarea({ target: textarea } as Event)
+          autoExpandTextarea({ target: textarea } as unknown as Event)
         }
       })
 
       const stepNotes = document.querySelectorAll('.step-notes-input')
       stepNotes.forEach((textarea) => {
         if (textarea instanceof HTMLTextAreaElement) {
-          autoExpandTextarea({ target: textarea } as Event)
+          autoExpandTextarea({ target: textarea } as unknown as Event)
         }
       })
     })
@@ -818,13 +1058,12 @@ async function saveAllChanges() {
   isSaving.value = true
 
   try {
-    const updatedRecipe = {
-      owner: currentRecipe.value.owner,
+    const updatedRecipe: Partial<RecipeUpdate> & { recipe: string } = {
+      // owner derived from session by backend
       recipe: currentRecipe.value._id,
       newTitle: editingTitleValue.value || currentRecipe.value.title,
       newDescription: editingDescriptionValue.value || currentRecipe.value.description,
       newIngredients: localIngredients.value.filter((ing) => ing.name.trim() !== ''),
-      newSteps: localSteps.value.filter((step) => step.description.trim() !== ''),
     }
 
     console.log('💾 Saving all changes:', updatedRecipe)
@@ -833,6 +1072,9 @@ async function saveAllChanges() {
 
     console.log('💾 All changes saved successfully')
     hasUnsavedChanges.value = false
+
+    // Clear draft banner if it exists
+    currentDraft.value = null
   } catch (error) {
     console.error('Failed to save changes:', error)
   } finally {
@@ -974,7 +1216,12 @@ function addNewIngredient() {
 function addIngredientIfComplete(index: number) {
   const ing = localIngredients.value[index]
   if (ing?.name && ing?.quantity && index === localIngredients.value.length - 1) {
-    localIngredients.value.push({ name: '', quantity: '', unit: '', notes: '' })
+    localIngredients.value.push({
+      name: '',
+      quantity: '',
+      unit: '',
+      notes: '',
+    })
     hasUnsavedChanges.value = true
   }
 }
@@ -1012,6 +1259,11 @@ function autoExpandTextarea(event: Event) {
   textarea.style.maxHeight = 'none'
 }
 
+function handleDescriptionInput(event: Event) {
+  autoExpandTextarea(event)
+  hasUnsavedChanges.value = true
+}
+
 function addNewStep() {
   if (!currentRecipe.value || !editMode.value) return
   const newStep = { description: '', notes: '' }
@@ -1043,26 +1295,26 @@ function removeStep(index: number) {
   hasUnsavedChanges.value = true
 }
 
-async function updateRecipeField(field: string, value: any) {
+async function updateRecipeField(field: string, value: unknown) {
   if (!currentRecipe.value || !authStore.userId) return
 
   isSaving.value = true
 
   try {
-    const updatedRecipe: any = {
-      owner: currentRecipe.value.owner,
+    const updatedRecipe: Partial<RecipeUpdate> & { recipe: string } = {
+      // owner derived from session by backend
       recipe: currentRecipe.value._id,
     }
 
-    // Map field names to API field names
-    if (field === 'title') {
+    // Map field names to API field names with type narrowing
+    if (field === 'title' && typeof value === 'string') {
       updatedRecipe.newTitle = value
-    } else if (field === 'description') {
+    } else if (field === 'description' && typeof value === 'string') {
       updatedRecipe.newDescription = value
-    } else if (field === 'ingredients') {
-      updatedRecipe.newIngredients = value
-    } else if (field === 'steps') {
-      updatedRecipe.newSteps = value
+    } else if (field === 'ingredients' && Array.isArray(value)) {
+      updatedRecipe.newIngredients = value as RecipeUpdate['newIngredients']
+    } else if (field === 'steps' && Array.isArray(value)) {
+      updatedRecipe.newSteps = value as RecipeUpdate['newSteps']
     }
 
     console.log('💾 Updating recipe field:', field, value)
@@ -1084,7 +1336,6 @@ async function shareToNotebook(notebook: Notebook) {
 
   try {
     await notebookStore.shareRecipe({
-      sharer: authStore.userId,
       recipe: currentRecipe.value._id,
       notebook: notebook._id,
     })
@@ -1117,7 +1368,6 @@ async function createAndShareNotebook() {
 
     // Share the recipe to the newly created notebook
     await notebookStore.shareRecipe({
-      sharer: authStore.userId,
       recipe: currentRecipe.value._id,
       notebook: notebookId,
     })
@@ -1304,6 +1554,105 @@ onMounted(async () => {
     await Promise.all([loadSharedUsers(), loadAuthorName(), loadCookbooksContainingRecipe()])
   }
 })
+
+const __templateBindings = {
+  showDraftModal,
+  currentDraft,
+  isAcceptingDraft,
+  sharedUsers,
+  authorName,
+  showShareModal,
+  isSharing,
+  showCreateForm,
+  isCreating,
+  newNotebook,
+  editMode,
+  showEditHint,
+  editingTitle,
+  editingDescription,
+  editingIngredient,
+  editingStep,
+  editingTitleValue,
+  editingDescriptionValue,
+  editingIngredientValue,
+  editingStepValue,
+  isSaving,
+  localIngredients,
+  localSteps,
+  hasUnsavedChanges,
+  activeAnnotation,
+  annotationPosition,
+  isLoading,
+  error,
+  currentRecipe,
+  currentNotebook,
+  forkCount,
+  annotationCount,
+  cookbooksContainingRecipe,
+  displayIngredients,
+  displaySteps,
+  availableNotebooks,
+  isOwnRecipe,
+  baseIngredients,
+  baseSteps,
+  isTitleModified,
+  isDescriptionModified,
+  isInCurrentCookbook,
+  isRecipeInNotebook,
+  goBack,
+  shareRecipe,
+  navigateToCookbook,
+  forkRecipe,
+  deleteRecipe,
+  loadSharedUsers,
+  loadCookbooksContainingRecipe,
+  loadAuthorName,
+  handleDraftReady,
+  handleDraftClose,
+  discardDraft,
+  acceptDraft,
+  handleAnnotationClick,
+  closeAnnotation,
+  toggleEditMode,
+  saveAllChanges,
+  startEditingTitle,
+  saveTitle,
+  cancelEditTitle,
+  startEditingDescription,
+  saveDescription,
+  cancelEditDescription,
+  startEditingIngredient,
+  saveIngredient,
+  cancelEditIngredient,
+  startEditingStep,
+  saveStep,
+  cancelEditStep,
+  addNewIngredient,
+  addIngredientIfComplete,
+  addStepIfComplete,
+  autoExpandTextarea,
+  handleDescriptionInput,
+  addNewStep,
+  removeIngredient,
+  removeStep,
+  updateRecipeField,
+  shareToNotebook,
+  createAndShareNotebook,
+  cancelCreateNotebook,
+  formatDate,
+  getDraftConfidenceClass,
+  getIngredientChangeClass,
+  getStepChangeClass,
+  AnnotationSystem,
+  DraftVersionModal,
+  Save,
+  CircleDot,
+  Sparkles,
+  Check,
+  Trash2,
+}
+
+void __templateBindings
 </script>
 
 <style scoped>
@@ -1355,7 +1704,8 @@ onMounted(async () => {
 .edit-mode-btn,
 .versions-btn,
 .fork-btn,
-.share-btn {
+.share-btn,
+.delete-btn {
   margin: 0 8px;
 }
 
@@ -1382,6 +1732,18 @@ onMounted(async () => {
 
 .fork-btn.disabled:hover {
   text-decoration: none;
+}
+
+.delete-btn {
+  color: var(--color-danger);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+}
+
+.delete-btn:hover {
+  opacity: 0.8;
 }
 
 .loading {
@@ -1424,6 +1786,12 @@ onMounted(async () => {
   gap: 10px;
   align-items: center;
   margin-left: auto;
+}
+
+.read-only-notice {
+  margin-top: 8px;
+  color: #555;
+  font-size: 14px;
 }
 
 .plain-title,
@@ -1505,10 +1873,26 @@ onMounted(async () => {
 }
 
 .cookbook-badge {
-  display: inline;
+  background: none;
+  border: none;
+  color: var(--brand-indigo-500);
+  cursor: pointer;
   font-size: 14px;
-  color: var(--brand-blue-400);
-  font-weight: normal;
+  font-weight: 500;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  text-decoration: none;
+}
+
+.cookbook-badge:hover,
+.cookbook-badge:focus-visible {
+  color: var(--brand-indigo-600);
+  text-decoration: underline;
+}
+
+.cookbook-badge:focus-visible {
+  outline: none;
 }
 
 .recipe-stats {
@@ -1536,38 +1920,6 @@ onMounted(async () => {
   border-radius: 4px;
   font-size: 12px;
   margin-right: 8px;
-}
-
-.sharing-info {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 14px;
-  color: #666;
-  padding: 10px 15px;
-  background: rgba(232, 245, 232, 0.5);
-  border-radius: 6px;
-  border-left: 3px solid var(--color-success);
-}
-
-.sharing-label {
-  font-weight: 500;
-}
-
-.shared-users {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-top: 5px;
-}
-
-.shared-user {
-  background: var(--color-success);
-  color: white;
-  padding: 4px 8px;
-  border-radius: 4px;
-  font-size: 12px;
-  font-weight: 500;
 }
 
 .debug-info {
@@ -1745,6 +2097,9 @@ onMounted(async () => {
   color: #28a745;
   font-weight: 500;
   font-size: 14px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
 }
 
 .share-to-notebook-btn {
@@ -2268,19 +2623,19 @@ onMounted(async () => {
 }
 
 .ingredient-quantity-input {
-  flex: 1 1 0%; /* 1/8 ratio (5/40) */
+  flex: 1 1 0%; /* Amount */
   min-width: 0;
   font-weight: 500;
 }
 
 .ingredient-unit-input {
-  flex: 1 0%; /* 1/5 ratio (8/40) */
+  flex: 1.5 1 0%;
   min-width: 0;
   font-weight: 500;
 }
 
 .ingredient-name-input {
-  flex: 4 1 0%; /* 1/4 ratio (10/40) */
+  flex: 4 1 0%;
   min-width: 0;
   min-height: 1.5em;
   max-height: none !important;
@@ -2385,14 +2740,23 @@ onMounted(async () => {
 .saving-indicator {
   color: var(--brand-blue-400);
   animation: pulse 1.5s ease-in-out infinite;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .unsaved-indicator {
   color: var(--brand-orange-500);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .saved-indicator {
   color: #6c757d;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
 
 @keyframes pulse {
@@ -2407,29 +2771,24 @@ onMounted(async () => {
 
 /* Change highlighting styles for draft versions */
 .ingredient-item.change-added,
-.step-item.change-added {
-  background: #d4edda;
-  padding-left: 10px;
-  margin-left: -10px;
-  border-left: 4px solid #28a745;
-}
-
+.step-item.change-added,
 .ingredient-item.change-removed,
-.step-item.change-removed {
-  background: #f8d7da;
-  padding-left: 10px;
-  margin-left: -10px;
-  border-left: 4px solid #dc3545;
-  text-decoration: line-through;
-  opacity: 0.6;
-}
-
+.step-item.change-removed,
 .ingredient-item.change-modified,
 .step-item.change-modified {
   background: #fff3cd;
   padding-left: 10px;
   margin-left: -10px;
   border-left: 4px solid #ffc107;
+  border-radius: 0;
+}
+
+.draft-field-highlight {
+  background-color: #fff3cd !important;
+  box-shadow: inset 4px 0 0 #ffc107;
+  transition:
+    background-color 0.3s ease,
+    box-shadow 0.3s ease;
 }
 
 .change-badge {
@@ -2525,6 +2884,9 @@ onMounted(async () => {
   font-size: 18px;
   font-weight: 600;
   color: var(--brand-blue-400);
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .draft-confidence {
@@ -2554,31 +2916,9 @@ onMounted(async () => {
   gap: 10px;
 }
 
-.discard-draft-btn,
-.edit-draft-btn,
-.accept-draft-btn {
-  margin: 0 8px;
-}
-
 .discard-draft-btn {
+  margin: 0 8px;
   color: #6c757d;
-}
-
-.edit-draft-btn {
-  color: var(--brand-orange-500);
-}
-
-.accept-draft-btn {
-  color: var(--color-success);
-}
-
-.accept-draft-btn:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
-
-.accept-draft-btn:disabled:hover {
-  text-decoration: none;
 }
 
 .draft-banner .draft-notes {
@@ -2586,5 +2926,117 @@ onMounted(async () => {
   background: rgba(255, 255, 255, 0.7);
   border-radius: 8px;
   color: #004085;
+}
+
+.skeleton {
+  pointer-events: none;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.shimmer {
+  position: relative;
+  overflow: hidden;
+  background-color: #f1f3f5;
+  border-radius: 8px;
+}
+
+.shimmer::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(
+    90deg,
+    rgba(241, 243, 245, 0) 0%,
+    rgba(230, 236, 247, 0.8) 50%,
+    rgba(241, 243, 245, 0) 100%
+  );
+  animation: shimmer 1.5s infinite;
+}
+
+@keyframes shimmer {
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+.skeleton .title-row {
+  align-items: center;
+}
+
+.skeleton-title {
+  height: 34px;
+  width: 50%;
+  border-radius: 12px;
+}
+
+.skeleton-line {
+  height: 14px;
+  margin: 12px 0;
+}
+
+.skeleton-line.short {
+  width: 60%;
+}
+
+.skeleton-meta,
+.skeleton-tags,
+.skeleton .header-actions {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 20px;
+}
+
+.skeleton-pill {
+  height: 18px;
+  min-width: 80px;
+}
+
+.skeleton-pill.wide {
+  min-width: 140px;
+}
+
+.skeleton-button {
+  height: 32px;
+  min-width: 90px;
+  border-radius: 16px;
+}
+
+.skeleton-section-title {
+  height: 24px;
+  width: 40%;
+  margin-bottom: 20px;
+}
+
+.skeleton-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.skeleton-list-item {
+  height: 20px;
+  border-radius: 6px;
+}
+
+.skeleton-list-block {
+  height: 56px;
+  border-radius: 10px;
+}
+
+.skeleton-grid {
+  margin-top: 30px;
 }
 </style>

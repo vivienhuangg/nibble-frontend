@@ -13,8 +13,11 @@
       </div>
 
       <div class="cookbook-actions">
-        <button @click="createRecipe" class="add-recipe-btn">Create Recipe</button>
-        <button @click="showShareModal = true" class="share-btn">📤 Share</button>
+        <button @click="createRecipe" class="add-recipe-btn">+ Create Recipe</button>
+        <button @click="showShareModal = true" class="share-btn">
+          <Share2 :size="16" />
+          <span>Share</span>
+        </button>
       </div>
     </div>
 
@@ -27,7 +30,7 @@
           placeholder="Search recipes..."
           class="search-input"
         />
-        <span class="search-icon">🔍</span>
+        <Search :size="18" class="search-icon" />
       </div>
 
       <div class="tag-filters">
@@ -47,7 +50,9 @@
     <div v-if="isLoading" class="loading">Loading recipes...</div>
 
     <div v-else-if="filteredRecipes.length === 0" class="empty-state">
-      <div class="empty-icon">📚</div>
+      <div class="empty-icon">
+        <BookOpenText :size="48" :stroke-width="1.5" />
+      </div>
       <h3>No recipes found</h3>
       <p v-if="searchQuery || selectedTags.length > 0">Try adjusting your search or filters</p>
       <p v-else>Add your first recipe to this cookbook!</p>
@@ -58,8 +63,10 @@
         v-for="recipe in filteredRecipes"
         :key="recipe._id"
         :recipe="recipe"
-        :fork-count="getForkCount(recipe._id)"
+        :fork-count="forkCounts[recipe._id] || 0"
+        :can-delete="canDeleteRecipe(recipe)"
         @share-requested="handleShareRequest"
+        @delete-requested="handleRecipeDelete"
       />
     </div>
 
@@ -107,15 +114,21 @@
 </template>
 
 <script setup lang="ts">
+import { BookOpenText, Search, Share2 } from 'lucide-vue-next'
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
+import { ApiError } from '@/services/api'
 import { useAnnotationStore } from '@/stores/annotation'
 import { useAuthStore } from '@/stores/auth'
 import { useNotebookStore } from '@/stores/notebook'
 import { useRecipeStore } from '@/stores/recipe'
-import { useVersionStore } from '@/stores/version'
 import type { Notebook, Recipe } from '@/types/api'
 import RecipeCard from './RecipeCard.vue'
+
+void BookOpenText
+void Search
+void Share2
+void RecipeCard
 
 interface Props {
   notebook?: Notebook | null
@@ -126,7 +139,6 @@ const router = useRouter()
 
 const notebookStore = useNotebookStore()
 const recipeStore = useRecipeStore()
-const versionStore = useVersionStore()
 const annotationStore = useAnnotationStore()
 const authStore = useAuthStore()
 
@@ -149,12 +161,11 @@ const otherMembers = computed(() => {
   return memberDetails.value.filter((member) => member.id !== authStore.userId)
 })
 
-const isLoading = computed(
-  () => notebookStore.isLoading || recipeStore.isLoading || versionStore.isLoading,
-)
+const isLoading = computed(() => notebookStore.isLoading || recipeStore.isLoading)
 
 const currentNotebook = computed(() => props.notebook || notebookStore.currentNotebook)
 const recipes = ref<Recipe[]>([])
+const forkCounts = ref<Record<string, number>>({})
 
 // Load recipes when notebook changes
 watch(
@@ -168,10 +179,16 @@ watch(
         newNotebook.recipes,
       )
       const loadedRecipes = await recipeStore.loadRecipesByIds(newNotebook.recipes)
-      recipes.value = loadedRecipes
+      recipes.value = Array.isArray(loadedRecipes)
+        ? loadedRecipes.filter((recipe): recipe is Recipe => Boolean(recipe))
+        : []
       console.log('🔍 CookbookView - Loaded recipes:', loadedRecipes)
+
+      // Load fork counts for all recipes
+      await loadForkCounts(loadedRecipes)
     } else {
       recipes.value = []
+      forkCounts.value = {}
     }
   },
   { immediate: true },
@@ -179,14 +196,18 @@ watch(
 
 const availableTags = computed(() => {
   const allTags = new Set<string>()
-  recipes.value.forEach((recipe) => {
-    recipe.tags.forEach((tag) => allTags.add(tag))
+  const recipeList = Array.isArray(recipes.value) ? recipes.value : []
+  recipeList.forEach((recipe) => {
+    if (!recipe) return
+    const tags = Array.isArray(recipe.tags) ? recipe.tags : []
+    tags.forEach((tag) => allTags.add(tag))
   })
   return Array.from(allTags).sort()
 })
 
 const filteredRecipes = computed(() => {
-  let filtered = recipes.value
+  const recipeList = Array.isArray(recipes.value) ? recipes.value : []
+  let filtered = recipeList.filter((recipe): recipe is Recipe => Boolean(recipe))
 
   // Filter by search query
   if (searchQuery.value) {
@@ -195,14 +216,15 @@ const filteredRecipes = computed(() => {
       (recipe) =>
         recipe.title.toLowerCase().includes(query) ||
         recipe.description?.toLowerCase().includes(query) ||
-        recipe.tags.some((tag) => tag.toLowerCase().includes(query)),
+        (Array.isArray(recipe.tags) &&
+          recipe.tags.some((tag) => tag.toLowerCase().includes(query))),
     )
   }
 
   // Filter by selected tags
   if (selectedTags.value.length > 0) {
     filtered = filtered.filter((recipe) =>
-      selectedTags.value.every((tag) => recipe.tags.includes(tag)),
+      selectedTags.value.every((tag) => Array.isArray(recipe.tags) && recipe.tags.includes(tag)),
     )
   }
 
@@ -218,10 +240,28 @@ function toggleTagFilter(tag: string) {
   }
 }
 
-function getForkCount(recipeId: string): number {
-  // Fork count = number of versions for this recipe
-  const versions = versionStore.versionsByRecipe(recipeId)
-  return versions.length
+function canDeleteRecipe(recipe: Recipe): boolean {
+  if (!authStore.userId) return false
+  return recipe.owner === authStore.userId
+}
+
+async function loadForkCounts(recipesToLoad: Recipe[]) {
+  // Load fork counts for all recipes in parallel
+  const counts: Record<string, number> = {}
+  const list = Array.isArray(recipesToLoad) ? recipesToLoad : []
+  await Promise.all(
+    list
+      .filter((recipe): recipe is Recipe => Boolean(recipe))
+      .map(async (recipe) => {
+        try {
+          counts[recipe._id] = await recipeStore.getForkCount(recipe._id)
+        } catch (error) {
+          console.error(`Failed to get fork count for ${recipe._id}:`, error)
+          counts[recipe._id] = 0
+        }
+      }),
+  )
+  forkCounts.value = counts
 }
 
 // Removed placeholder counts/favorites; card will not display them without real data
@@ -229,6 +269,31 @@ function getForkCount(recipeId: string): number {
 function handleShareRequest(recipe: Recipe) {
   console.log('Share recipe:', recipe)
   // In a real app, you'd open a share modal
+}
+
+async function handleRecipeDelete(recipe: Recipe) {
+  if (!recipe || !recipe._id) return
+  const confirmDelete = window.confirm(
+    `Are you sure you want to delete "${recipe.title}"? This action cannot be undone.`,
+  )
+
+  if (!confirmDelete) return
+
+  try {
+    await recipeStore.deleteRecipe(recipe._id)
+
+    recipes.value = recipes.value.filter((r) => r._id !== recipe._id)
+    const updatedCounts = { ...forkCounts.value }
+    delete updatedCounts[recipe._id]
+    forkCounts.value = updatedCounts
+
+    if (currentNotebook.value?._id) {
+      await notebookStore.loadNotebookById(currentNotebook.value._id)
+    }
+  } catch (error) {
+    console.error('Failed to delete recipe:', error)
+    alert('Failed to delete recipe. Please try again.')
+  }
 }
 
 function closeShareModal() {
@@ -274,7 +339,20 @@ async function loadMemberDetails() {
 }
 
 function createRecipe() {
-  if (!currentNotebook.value) return
+  console.log('🔍 createRecipe - currentNotebook.value:', currentNotebook.value)
+  console.log('🔍 createRecipe - currentNotebook.value?._id:', currentNotebook.value?._id)
+  if (!currentNotebook.value) {
+    console.error('❌ createRecipe - No current notebook!')
+    return
+  }
+  if (!currentNotebook.value._id) {
+    console.error('❌ createRecipe - Notebook has no _id!')
+    return
+  }
+  console.log(
+    '🔍 createRecipe - navigating to:',
+    `/recipes/create?notebookId=${currentNotebook.value._id}`,
+  )
   router.push(`/recipes/create?notebookId=${currentNotebook.value._id}`)
 }
 
@@ -289,21 +367,26 @@ async function sendUsernameInvitation() {
 
   try {
     // Get user ID by username first
-    const userId = await authStore.getUserIDByUsername(inviteUsername.value)
-
-    if (!userId || userId === '') {
-      inviteError.value = 'No user found with that username'
+    const username = inviteUsername.value.trim()
+    if (!username) {
+      inviteError.value = 'Enter a username to invite.'
       return
     }
 
-    // Invite the user to the notebook
+    const userId = await authStore.getUserIDByUsername(username)
+
+    if (!userId || userId === '') {
+      inviteError.value = `User "${username}" was not found.`
+      return
+    }
+
+    // Invite the user to the notebook (backend derives owner from session)
     await notebookStore.inviteMember({
-      owner: authStore.userId,
       notebook: currentNotebook.value._id,
       member: userId,
     })
 
-    inviteSuccess.value = `${inviteUsername.value} has been added to this cookbook!`
+    inviteSuccess.value = `${username} has been added to this cookbook!`
     inviteUsername.value = ''
 
     // Reload the notebook to get updated members list
@@ -319,8 +402,8 @@ async function sendUsernameInvitation() {
     }, 2000)
   } catch (error) {
     console.error('Failed to send invitation:', error)
-    if (error instanceof Error && error.message.includes('404')) {
-      inviteError.value = 'No user found with that email address'
+    if (error instanceof ApiError && error.status === 404) {
+      inviteError.value = 'No user found with that username'
     } else {
       inviteError.value = 'Failed to send invitation. Please try again.'
     }
@@ -334,9 +417,8 @@ watch(
   currentNotebook,
   async (newNotebook) => {
     if (newNotebook) {
-      // Load versions and annotations for recipes in this cookbook
+      // Load annotations for recipes in this cookbook
       for (const recipeId of newNotebook.recipes || []) {
-        await versionStore.loadVersionsByRecipe(recipeId)
         await annotationStore.loadAnnotationsForRecipe(recipeId)
       }
     }
@@ -356,6 +438,19 @@ onMounted(async () => {
     await recipeStore.loadUserRecipes()
     await notebookStore.loadUserNotebooks()
   }
+})
+
+defineExpose({
+  availableTags,
+  filteredRecipes,
+  toggleTagFilter,
+  canDeleteRecipe,
+  handleShareRequest,
+  handleRecipeDelete,
+  createRecipe,
+  sendUsernameInvitation,
+  otherMembers,
+  isLoading,
 })
 </script>
 
@@ -401,13 +496,28 @@ onMounted(async () => {
   gap: 10px;
 }
 
-.add-recipe-btn {
+.cookbook-actions button {
+  background: none;
+  border: none;
   color: var(--brand-indigo-500);
-  margin-right: 8px;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  text-decoration: none;
+  transition: color 0.2s ease;
 }
 
-.share-btn {
-  margin-left: 8px;
+.cookbook-actions button:hover,
+.cookbook-actions button:focus-visible {
+  color: var(--brand-indigo-600);
+  text-decoration: underline;
+}
+
+.cookbook-actions button:focus-visible {
+  outline: none;
 }
 
 .filter-section {
@@ -438,8 +548,8 @@ onMounted(async () => {
   right: 12px;
   top: 50%;
   transform: translateY(-50%);
-  font-size: 18px;
   color: #666;
+  pointer-events: none;
 }
 
 .tag-filters {
@@ -482,8 +592,11 @@ onMounted(async () => {
 }
 
 .empty-icon {
-  font-size: 48px;
   margin-bottom: 20px;
+  color: var(--brand-indigo-500);
+  opacity: 0.5;
+  display: flex;
+  justify-content: center;
 }
 
 .empty-state h3 {

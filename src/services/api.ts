@@ -16,10 +16,6 @@ import type {
 	UserLogin,
 	UserRegistration,
 	UserUpdate,
-	Version,
-	VersionCreate,
-	VersionDraft,
-	VersionDraftCreate,
 } from "@/types/api";
 import { userStorage } from "@/utils/secureStorage";
 
@@ -79,14 +75,41 @@ async function apiRequest<T>(
 
 	for (let attempt = 1; attempt <= retryConfig.maxRetries; attempt++) {
 		try {
+			// Automatically inject session token into request body if available
+			const sessionToken = getSessionToken();
+			const shouldStripDerivedFields = !endpoint.includes("/_");
+
+			// CRITICAL: Remove owner/author/requester fields - backend derives from session
+			let cleanData = data;
+			if (typeof data === "object" && data !== null) {
+				const dataObj = data as Record<string, unknown>;
+				if (shouldStripDerivedFields) {
+					const { owner, author, requester, ...rest } = dataObj;
+					cleanData = rest;
+
+					// Log warning if these fields were present
+					if (owner || author || requester) {
+						console.warn(
+							"⚠️ Removed owner/author/requester from request - backend derives from session",
+							{ endpoint, removed: { owner, author, requester } },
+						);
+					}
+				} else {
+					cleanData = dataObj;
+				}
+			}
+
+			const requestData =
+				sessionToken && typeof cleanData === "object" && cleanData !== null
+					? { session: sessionToken, ...cleanData }
+					: cleanData;
+
 			const response = await fetch(`${API_BASE_URL}${endpoint}`, {
 				method,
 				headers: {
 					"Content-Type": "application/json",
-					// Add authorization header if user is logged in
-					...(getAuthToken() && { Authorization: `Bearer ${getAuthToken()}` }),
 				},
-				body: JSON.stringify(data),
+				body: JSON.stringify(requestData),
 			});
 
 			const result = await response.json();
@@ -136,9 +159,9 @@ async function apiRequest<T>(
 	throw lastError;
 }
 
-// Simple auth token management (will be enhanced later)
-function getAuthToken(): string | null {
-	return userStorage.getAuthToken();
+// Session token management
+function getSessionToken(): string | null {
+	return userStorage.getAuthToken(); // getAuthToken now returns session token
 }
 
 // Response parsing utilities to handle inconsistent backend responses
@@ -212,18 +235,39 @@ function parseSingleResponse<T>(response: unknown, key: string): T | null {
 
 // User API
 export const userApi = {
-	async register(data: UserRegistration): Promise<ActionResponse> {
-		return apiRequest("/User/registerUser", data);
+	// Register - public endpoint, returns user ID
+	async register(data: UserRegistration): Promise<{ user: ID }> {
+		// Don't inject session for registration
+		const sessionToken = getSessionToken();
+		const response = await apiRequest<{ user: ID }>("/User/registerUser", data);
+		// Manually restore session token if it was there
+		if (sessionToken) {
+			userStorage.setAuthToken(sessionToken);
+		}
+		return response;
 	},
 
-	async login(data: UserLogin): Promise<ActionResponse> {
-		return apiRequest("/User/login", data);
+	// Login - public endpoint, returns user ID and session token
+	async login(data: UserLogin): Promise<{ user: ID; session: string }> {
+		// Don't inject session for login
+		const response = await apiRequest<{ user: ID; session: string }>(
+			"/User/login",
+			data,
+		);
+		return response;
 	},
 
+	// Logout - destroys session
+	async logout(session: string): Promise<void> {
+		await apiRequest("/Sessioning/deleteSession", { session });
+	},
+
+	// Update profile - protected endpoint
 	async updateProfile(data: UserUpdate): Promise<ActionResponse> {
 		return apiRequest("/User/updateProfile", data);
 	},
 
+	// Query user details - public endpoint
 	async getUserDetails(userId: ID): Promise<User> {
 		const response = await apiRequest("/User/_getUserDetails", {
 			user: userId,
@@ -242,40 +286,85 @@ export const userApi = {
 
 		return user;
 	},
+
+	// Query user ID by username - public endpoint
 	async getUserIDByUsername(username: string): Promise<ID> {
 		const response = await apiRequest("/User/_getUserIDByUsername", {
 			username,
 		});
-		const userId = parseSingleResponse<ID>(response, "user");
-		return userId || "";
+		const entries = Array.isArray(response) ? response : [response];
+		const firstEntry = entries[0];
+
+		if (firstEntry == null) {
+			throw new ApiError("User not found.", 404);
+		}
+
+		if (typeof firstEntry === "object") {
+			const entry = firstEntry as Record<string, unknown>;
+
+			if ("error" in entry) {
+				const message =
+					typeof entry.error === "string"
+						? (entry.error as string)
+						: "User not found.";
+				throw new ApiError(message, 404);
+			}
+
+			if ("user" in entry && typeof entry.user === "string") {
+				const userId = (entry.user as string).trim();
+				if (!userId) {
+					throw new ApiError("User not found.", 404);
+				}
+				return userId as ID;
+			}
+		}
+
+		if (typeof firstEntry === "string") {
+			const userId = firstEntry.trim();
+			if (!userId) {
+				throw new ApiError("User not found.", 404);
+			}
+			return userId as ID;
+		}
+
+		throw new ApiError("Unexpected response while looking up user ID.", 500);
 	},
 };
 
 // Recipe API
 export const recipeApi = {
-	async createRecipe(data: RecipeCreate): Promise<ActionResponse> {
-		return apiRequest("/Recipe/createRecipe", data);
+	// Create recipe - protected endpoint (session required, backend derives owner)
+	async createRecipe(
+		data: Omit<RecipeCreate, "owner">,
+	): Promise<{ recipe: ID }> {
+		return apiRequest<{ recipe: ID }>("/Recipe/createRecipe", data);
 	},
 
+	// Add tag - public endpoint
 	async addTag(recipeId: ID, tag: string): Promise<ActionResponse> {
 		return apiRequest("/Recipe/addTag", { recipe: recipeId, tag });
 	},
 
+	// Remove tag - public endpoint
 	async removeTag(recipeId: ID, tag: string): Promise<ActionResponse> {
 		return apiRequest("/Recipe/removeTag", { recipe: recipeId, tag });
 	},
 
-	async deleteRecipe(requesterId: ID, recipeId: ID): Promise<ActionResponse> {
+	// Delete recipe - protected endpoint (session required, backend derives requester)
+	async deleteRecipe(recipeId: ID): Promise<ActionResponse> {
 		return apiRequest("/Recipe/deleteRecipe", {
-			requester: requesterId,
 			recipe: recipeId,
 		});
 	},
 
-	async updateRecipeDetails(data: RecipeUpdate): Promise<ActionResponse> {
+	// Update recipe - protected endpoint (session required, backend derives owner)
+	async updateRecipeDetails(
+		data: Omit<RecipeUpdate, "owner">,
+	): Promise<ActionResponse> {
 		return apiRequest("/Recipe/updateRecipeDetails", data);
 	},
 
+	// Get recipe by ID - public query endpoint
 	async getRecipeById(recipeId: ID): Promise<Recipe> {
 		const response = await apiRequest("/Recipe/_getRecipeById", {
 			recipe: recipeId,
@@ -302,6 +391,7 @@ export const recipeApi = {
 		);
 	},
 
+	// List recipes by owner - public query endpoint
 	async listRecipesByOwner(ownerId: ID): Promise<Recipe[]> {
 		const response = await apiRequest("/Recipe/_listRecipesByOwner", {
 			owner: ownerId,
@@ -309,16 +399,32 @@ export const recipeApi = {
 		return parseQueryResponse<Recipe>(response, "recipe");
 	},
 
+	// Search recipes by tag - public query endpoint
 	async searchRecipesByTag(tag: string): Promise<Recipe[]> {
 		const response = await apiRequest("/Recipe/_searchRecipesByTag", { tag });
 		return parseQueryResponse<Recipe>(response, "recipe");
 	},
 
+	// Get fork count - public query endpoint
+	async getForkCount(recipeId: ID): Promise<{ count: number }> {
+		return apiRequest<{ count: number }>("/Recipe/_getForkCount", {
+			recipe: recipeId,
+		});
+	},
+
+	// List forks of recipe - public query endpoint
+	async listForksOfRecipe(recipeId: ID): Promise<Recipe[]> {
+		const response = await apiRequest("/Recipe/_listForksOfRecipe", {
+			recipe: recipeId,
+		});
+		return parseQueryResponse<Recipe>(response, "recipe");
+	},
+
+	// Get recipes by IDs - helper method using getRecipeById
 	async getRecipesByIds(recipeIds: ID[]): Promise<Recipe[]> {
 		if (recipeIds.length === 0) return [];
 
-		// For now, we'll fetch each recipe individually
-		// In a real app, you'd want a batch endpoint
+		// Fetch each recipe individually
 		const recipes = await Promise.all(
 			recipeIds.map((id) => this.getRecipeById(id)),
 		);
@@ -326,20 +432,38 @@ export const recipeApi = {
 		return recipes.filter((recipe) => recipe !== null) as Recipe[];
 	},
 
+	// Draft recipe with AI - protected endpoint (session required, backend derives author)
 	async draftRecipeWithAI(
-		author: string,
 		recipe: string,
 		goal: string,
-	): Promise<ActionResponse> {
+	): Promise<{
+		draftId: ID;
+		baseRecipe: ID;
+		requester: ID;
+		goal: string;
+		ingredients: Array<{
+			name: string;
+			quantity: string;
+			unit?: string;
+			notes?: string;
+		}>;
+		steps: Array<{
+			description: string;
+			notes?: string;
+		}>;
+		notes: string;
+		confidence: number;
+		created: string;
+		expires: string;
+	}> {
 		return apiRequest("/Recipe/draftRecipeWithAI", {
-			author,
 			recipe,
 			goal,
 		});
 	},
 
+	// Apply draft - protected endpoint (session required, backend derives owner)
 	async applyDraft(
-		owner: string,
 		recipe: string,
 		draftDetails: {
 			ingredients: Array<{
@@ -356,165 +480,43 @@ export const recipeApi = {
 		},
 	): Promise<ActionResponse> {
 		return apiRequest("/Recipe/applyDraft", {
-			owner,
 			recipe,
 			draftDetails,
 		});
-	},
-
-	async getForkCount(recipeId: ID): Promise<ActionResponse> {
-		return apiRequest("/Recipe/_getForkCount", { recipe: recipeId });
-	},
-};
-
-// Version API
-export const versionApi = {
-	async createVersion(data: VersionCreate): Promise<ActionResponse> {
-		return apiRequest("/Version/createVersion", data);
-	},
-
-	async deleteVersion(
-		requesterId: string,
-		versionId: string,
-	): Promise<ActionResponse> {
-		return apiRequest("/Version/deleteVersion", {
-			requester: requesterId,
-			version: versionId,
-		});
-	},
-
-	async draftVersionWithAI(
-		author: string,
-		recipe: string,
-		goal: string,
-		options: Record<string, unknown> = {},
-	): Promise<ActionResponse> {
-		return apiRequest("/Version/draftVersionWithAI", {
-			author,
-			recipe,
-			goal,
-			options,
-		});
-	},
-
-	async approveDraft(data: Record<string, unknown>): Promise<ActionResponse> {
-		return apiRequest("/Version/approveDraft", data);
-	},
-
-	async rejectDraft(
-		author: string,
-		draftId: string,
-		baseRecipe: string,
-		goal: string,
-	): Promise<ActionResponse> {
-		return apiRequest("/Version/rejectDraft", {
-			author,
-			draftId,
-			baseRecipe,
-			goal,
-		});
-	},
-
-	async getVersionById(versionId: string): Promise<Version> {
-		const response = await apiRequest("/Version/_getVersionById", {
-			version: versionId,
-		});
-		return (
-			parseSingleResponse<Version>(response, "version") || {
-				id: versionId,
-				baseRecipe: "",
-				versionNum: "",
-				author: "",
-				notes: "",
-				ingredients: [],
-				steps: [],
-				created: "",
-				promptHistory: [],
-			}
-		);
-	},
-
-	async listVersionsByRecipe(recipeId: string): Promise<Version[]> {
-		const response = await apiRequest("/Version/_listVersionsByRecipe", {
-			recipe: recipeId,
-		});
-		return parseQueryResponse<Version>(response, "version");
-	},
-
-	async listVersionsByAuthor(authorId: string): Promise<Version[]> {
-		const response = await apiRequest("/Version/_listVersionsByAuthor", {
-			author: authorId,
-		});
-		return parseQueryResponse<Version>(response, "version");
-	},
-};
-
-// VersionDraft API
-export const versionDraftApi = {
-	async createDraft(data: VersionDraftCreate): Promise<ActionResponse> {
-		return apiRequest("/VersionDraft/createDraft", data);
-	},
-
-	async deleteDraft(draftId: string): Promise<ActionResponse> {
-		return apiRequest("/VersionDraft/deleteDraft", { id: draftId });
-	},
-
-	async getDraftById(draftId: string): Promise<VersionDraft> {
-		const response = await apiRequest("/VersionDraft/_getDraftById", {
-			id: draftId,
-		});
-		return (
-			parseSingleResponse<VersionDraft>(response, "draft") || {
-				_id: draftId,
-				requester: "",
-				baseRecipe: "",
-				goal: "",
-				ingredients: [],
-				steps: [],
-				notes: "",
-				confidence: 0,
-				created: "",
-				expires: "",
-			}
-		);
-	},
-
-	async listDraftsByRequester(requesterId: string): Promise<VersionDraft[]> {
-		const response = await apiRequest("/VersionDraft/_listDraftsByRequester", {
-			requester: requesterId,
-		});
-		return parseQueryResponse<VersionDraft>(response, "draft");
-	},
-
-	async cleanupExpiredDrafts(): Promise<ActionResponse> {
-		return apiRequest("/VersionDraft/_cleanupExpiredDrafts", {});
 	},
 };
 
 // Annotation API
 export const annotationApi = {
-	async annotate(data: AnnotationCreate): Promise<ActionResponse> {
-		return apiRequest("/Annotation/annotate", data);
+	// Create annotation - protected endpoint (session required, backend derives author)
+	async annotate(
+		data: Omit<AnnotationCreate, "author">,
+	): Promise<{ annotation: ID }> {
+		return apiRequest<{ annotation: ID }>("/Annotation/annotate", data);
 	},
 
-	async editAnnotation(data: AnnotationUpdate): Promise<ActionResponse> {
+	// Edit annotation - protected endpoint (session required, backend derives author)
+	async editAnnotation(
+		data: Omit<AnnotationUpdate, "author">,
+	): Promise<ActionResponse> {
 		return apiRequest("/Annotation/editAnnotation", data);
 	},
 
-	async resolveAnnotation(data: AnnotationResolve): Promise<ActionResponse> {
+	// Resolve annotation - protected endpoint (session required, backend derives resolver)
+	async resolveAnnotation(
+		data: Omit<AnnotationResolve, "resolver">,
+	): Promise<ActionResponse> {
 		return apiRequest("/Annotation/resolveAnnotation", data);
 	},
 
-	async deleteAnnotation(
-		authorId: string,
-		annotationId: string,
-	): Promise<ActionResponse> {
+	// Delete annotation - protected endpoint (session required, backend derives author)
+	async deleteAnnotation(annotationId: string): Promise<ActionResponse> {
 		return apiRequest("/Annotation/deleteAnnotation", {
-			author: authorId,
 			annotation: annotationId,
 		});
 	},
 
+	// Get annotations for recipe - public query endpoint
 	async getAnnotationsForRecipe(recipeId: string): Promise<Annotation[]> {
 		const response = await apiRequest("/Annotation/_getAnnotationsForRecipe", {
 			recipe: recipeId,
@@ -522,6 +524,7 @@ export const annotationApi = {
 		return parseQueryResponse<Annotation>(response, "annotation");
 	},
 
+	// Get annotation by ID - public query endpoint
 	async getAnnotationById(annotationId: string): Promise<Annotation> {
 		const response = await apiRequest("/Annotation/_getAnnotationById", {
 			annotation: annotationId,
@@ -543,49 +546,51 @@ export const annotationApi = {
 
 // Notebook API
 export const notebookApi = {
-	async createNotebook(data: NotebookCreate): Promise<ActionResponse> {
-		return apiRequest("/Notebook/createNotebook", data);
+	// Create notebook - protected endpoint (session required, backend derives owner)
+	async createNotebook(
+		data: Omit<NotebookCreate, "owner">,
+	): Promise<{ notebook: ID }> {
+		return apiRequest<{ notebook: ID }>("/Notebook/createNotebook", data);
 	},
 
-	async inviteMember(data: NotebookInvite): Promise<ActionResponse> {
+	// Invite member - protected endpoint (session required, backend derives owner)
+	async inviteMember(
+		data: Omit<NotebookInvite, "owner">,
+	): Promise<ActionResponse> {
 		return apiRequest("/Notebook/inviteMember", data);
 	},
 
-	async removeMember(
-		ownerId: ID,
-		notebookId: ID,
-		memberId: ID,
-	): Promise<ActionResponse> {
+	// Remove member - protected endpoint (session required, backend derives owner)
+	async removeMember(notebookId: ID, memberId: ID): Promise<ActionResponse> {
 		return apiRequest("/Notebook/removeMember", {
-			owner: ownerId,
 			notebook: notebookId,
 			member: memberId,
 		});
 	},
 
-	async shareRecipe(data: NotebookShare): Promise<ActionResponse> {
+	// Share recipe - protected endpoint (session required, backend derives sharer)
+	async shareRecipe(
+		data: Omit<NotebookShare, "sharer">,
+	): Promise<ActionResponse> {
 		return apiRequest("/Notebook/shareRecipe", data);
 	},
 
-	async unshareRecipe(
-		requesterId: ID,
-		recipeId: ID,
-		notebookId: ID,
-	): Promise<ActionResponse> {
+	// Unshare recipe - protected endpoint (session required, backend derives requester)
+	async unshareRecipe(recipeId: ID, notebookId: ID): Promise<ActionResponse> {
 		return apiRequest("/Notebook/unshareRecipe", {
-			requester: requesterId,
 			recipe: recipeId,
 			notebook: notebookId,
 		});
 	},
 
-	async deleteNotebook(ownerId: ID, notebookId: ID): Promise<ActionResponse> {
+	// Delete notebook - protected endpoint (session required, backend derives owner)
+	async deleteNotebook(notebookId: ID): Promise<ActionResponse> {
 		return apiRequest("/Notebook/deleteNotebook", {
-			owner: ownerId,
 			notebook: notebookId,
 		});
 	},
 
+	// Get notebook by ID - public query endpoint
 	async getNotebookById(notebookId: ID): Promise<Notebook> {
 		const response = await apiRequest("/Notebook/_getNotebookById", {
 			notebook: notebookId,
@@ -603,6 +608,7 @@ export const notebookApi = {
 		);
 	},
 
+	// Get notebooks by owner - public query endpoint
 	async getNotebooksByOwner(ownerId: ID): Promise<Notebook[]> {
 		const response = await apiRequest("/Notebook/_getNotebooksByOwner", {
 			owner: ownerId,
@@ -610,6 +616,7 @@ export const notebookApi = {
 		return parseQueryResponse<Notebook>(response, "notebook");
 	},
 
+	// Get notebooks containing recipe - public query endpoint
 	async getNotebooksContainingRecipe(recipeId: ID): Promise<Notebook[]> {
 		const response = await apiRequest(
 			"/Notebook/_getNotebooksContainingRecipe",
@@ -620,7 +627,8 @@ export const notebookApi = {
 		return parseQueryResponse<Notebook>(response, "notebook");
 	},
 
-	async getNotebooksByMember(memberId: ID): Promise<Notebook[]> {
+	// Get notebooks where user is a member - public query endpoint
+	async getNotebooksWithMember(memberId: ID): Promise<Notebook[]> {
 		const response = await apiRequest("/Notebook/_getNotebooksWithMember", {
 			member: memberId,
 		});

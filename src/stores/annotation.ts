@@ -49,24 +49,43 @@ export const useAnnotationStore = defineStore("annotation", () => {
 	async function createAnnotation(
 		annotationData: Omit<AnnotationCreate, "author">,
 	): Promise<ID> {
-		if (!authStore.userId) {
+		if (!authStore.isAuthenticated) {
 			throw new Error("User must be logged in to create annotations");
 		}
 
 		isLoading.value = true;
 		error.value = null;
 
+		// Optimistic update - add temporary annotation immediately
+		const tempId = `temp-${Date.now()}`;
+		const optimisticAnnotation: Annotation = {
+			_id: tempId,
+			author: authStore.userId!,
+			recipe: annotationData.recipe,
+			targetKind: annotationData.targetKind,
+			targetIndex: annotationData.index,
+			text: annotationData.text,
+			created: new Date().toISOString(),
+			resolved: false,
+		};
+		annotations.value = [...annotations.value, optimisticAnnotation];
+
 		try {
-			const response = await annotationApi.annotate({
-				...annotationData,
-				author: authStore.userId,
-			});
+			// Backend derives author from session token
+			const response = await annotationApi.annotate(annotationData);
 
-			// Refresh annotations for the recipe
-			await loadAnnotationsForRecipe(annotationData.recipe);
+			// Replace optimistic annotation with real one
+			annotations.value = annotations.value.map((a) =>
+				a._id === tempId
+					? { ...optimisticAnnotation, _id: response.annotation }
+					: a,
+			);
 
-			return response.annotation as ID;
+			return response.annotation;
 		} catch (err) {
+			// Remove optimistic annotation on error
+			annotations.value = annotations.value.filter((a) => a._id !== tempId);
+
 			if (err instanceof ApiError) {
 				error.value = err.message;
 			} else {
@@ -120,7 +139,7 @@ export const useAnnotationStore = defineStore("annotation", () => {
 		annotationId: ID,
 		newText: string,
 	): Promise<void> {
-		if (!authStore.userId) {
+		if (!authStore.isAuthenticated) {
 			throw new Error("User must be logged in to update annotations");
 		}
 
@@ -128,8 +147,8 @@ export const useAnnotationStore = defineStore("annotation", () => {
 		error.value = null;
 
 		try {
+			// Backend derives author from session token
 			await annotationApi.editAnnotation({
-				author: authStore.userId,
 				annotation: annotationId,
 				newText,
 			});
@@ -159,7 +178,7 @@ export const useAnnotationStore = defineStore("annotation", () => {
 		annotationId: ID,
 		resolved: boolean,
 	): Promise<void> {
-		if (!authStore.userId) {
+		if (!authStore.isAuthenticated) {
 			throw new Error("User must be logged in to resolve annotations");
 		}
 
@@ -167,8 +186,8 @@ export const useAnnotationStore = defineStore("annotation", () => {
 		error.value = null;
 
 		try {
+			// Backend derives resolver from session token
 			await annotationApi.resolveAnnotation({
-				resolver: authStore.userId,
 				annotation: annotationId,
 				resolved,
 			});
@@ -195,7 +214,7 @@ export const useAnnotationStore = defineStore("annotation", () => {
 	}
 
 	async function deleteAnnotation(annotationId: ID): Promise<void> {
-		if (!authStore.userId) {
+		if (!authStore.isAuthenticated) {
 			throw new Error("User must be logged in to delete annotations");
 		}
 
@@ -203,7 +222,8 @@ export const useAnnotationStore = defineStore("annotation", () => {
 		error.value = null;
 
 		try {
-			await annotationApi.deleteAnnotation(authStore.userId, annotationId);
+			// Backend derives author from session token
+			await annotationApi.deleteAnnotation(annotationId);
 
 			// Remove from local state
 			annotations.value = annotations.value.filter(

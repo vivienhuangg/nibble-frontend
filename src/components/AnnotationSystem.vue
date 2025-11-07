@@ -148,7 +148,10 @@ watch(
   () => annotations.value,
   (newAnnotations) => {
     newAnnotations.forEach((annotation) => {
-      loadAuthorName(annotation.author)
+      // Only load if we don't already have this author's name
+      if (!authorNames.value[annotation.author]) {
+        loadAuthorName(annotation.author)
+      }
     })
   },
   { deep: true },
@@ -229,7 +232,13 @@ function formatDate(dateString: string): string {
   return date.toLocaleDateString()
 }
 
-async function submitAnnotation() {
+async function submitAnnotation(event?: Event) {
+  // Ensure we prevent default behavior
+  if (event) {
+    event.preventDefault()
+    event.stopPropagation()
+  }
+  
   if (!annotationText.value.trim()) return
 
   try {
@@ -247,6 +256,7 @@ async function submitAnnotation() {
     emit('close')
   } catch (err) {
     console.error('Failed to create annotation:', err)
+    // Don't re-throw - handle gracefully
   }
 }
 </script>

@@ -13,7 +13,9 @@
         :class="{ active: selectedNotebook?._id === notebook._id }"
         @click="selectNotebook(notebook)"
       >
-        <div class="cookbook-icon">📚</div>
+        <div class="cookbook-icon">
+          <BookOpenText :size="24" :stroke-width="2" />
+        </div>
         <div class="cookbook-info">
           <h3>{{ notebook.title }}</h3>
           <p>{{ notebook.description }}</p>
@@ -35,7 +37,9 @@
         :class="{ active: selectedNotebook?._id === notebook._id }"
         @click="selectNotebook(notebook)"
       >
-        <div class="cookbook-icon">👥</div>
+        <div class="cookbook-icon shared-icon">
+          <Users :size="24" :stroke-width="2" />
+        </div>
         <div class="cookbook-info">
           <h3>{{ notebook.title }}</h3>
           <p>{{ notebook.description }}</p>
@@ -87,6 +91,7 @@
 
 <script setup lang="ts">
 import { computed, reactive, ref } from 'vue'
+import { BookOpenText, Users } from 'lucide-vue-next'
 import { useNotebookStore } from '@/stores/notebook'
 import type { Notebook } from '@/types/api'
 
@@ -208,9 +213,16 @@ async function handleCreateNotebook() {
 }
 
 .cookbook-icon {
-  font-size: 24px;
   margin-right: 15px;
   flex-shrink: 0;
+  color: var(--brand-indigo-500);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.cookbook-icon.shared-icon {
+  color: var(--color-success);
 }
 
 .cookbook-info {

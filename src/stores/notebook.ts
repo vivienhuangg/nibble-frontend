@@ -12,12 +12,11 @@ import { useAuthStore } from "./auth";
 
 export const useNotebookStore = defineStore("notebook", () => {
 	const notebooks = ref<Notebook[]>([]);
+	const ownedNotebooks = ref<Notebook[]>([]);
+	const memberNotebooks = ref<Notebook[]>([]);
 	const currentNotebook = ref<Notebook | null>(null);
 	const isLoading = ref(false);
 	const error = ref<string | null>(null);
-
-	// Ensure notebooks is always an array
-	const safeNotebooks = computed(() => notebooks.value || []);
 
 	const authStore = useAuthStore();
 
@@ -26,41 +25,75 @@ export const useNotebookStore = defineStore("notebook", () => {
 			"🔍 userNotebooks computed - authStore.userId:",
 			authStore.userId,
 		);
-		console.log(
-			"🔍 userNotebooks computed - safeNotebooks.value:",
-			safeNotebooks.value,
-		);
 		if (!authStore.userId) return [];
-		const filtered = safeNotebooks.value.filter(
-			(notebook) => notebook.owner === authStore.userId,
+		console.log(
+			"🔍 userNotebooks computed - ownedNotebooks:",
+			ownedNotebooks.value,
 		);
-		console.log("🔍 userNotebooks computed - filtered result:", filtered);
-		return filtered;
+		return ownedNotebooks.value;
 	});
 
 	const sharedNotebooks = computed(() => {
 		if (!authStore.userId) return [];
-		const filtered = safeNotebooks.value.filter(
-			(notebook) =>
-				notebook.members.includes(authStore.userId as ID) &&
-				notebook.owner !== authStore.userId,
-		);
 		console.log(
 			"🔍 sharedNotebooks computed - authStore.userId:",
 			authStore.userId,
 		);
 		console.log(
-			"🔍 sharedNotebooks computed - safeNotebooks.value:",
-			safeNotebooks.value,
+			"🔍 sharedNotebooks computed - memberNotebooks:",
+			memberNotebooks.value,
 		);
-		console.log("🔍 sharedNotebooks computed - filtered result:", filtered);
-		return filtered;
+		return memberNotebooks.value;
 	});
+
+	function normalizeNotebook(notebook: Notebook): Notebook {
+		const normalizedMembers = Array.isArray(notebook.members)
+			? notebook.members.map((member) => member as ID)
+			: [];
+		const normalizedRecipes = Array.isArray(notebook.recipes)
+			? notebook.recipes.map((recipe) => recipe as ID)
+			: [];
+
+		return {
+			...notebook,
+			members: normalizedMembers,
+			recipes: normalizedRecipes,
+			description: notebook.description ?? "",
+		};
+	}
+
+	function mergeNotebooks(): void {
+		const combined = [...ownedNotebooks.value, ...memberNotebooks.value];
+		const byId = new Map<ID, Notebook>();
+		for (const notebook of combined) {
+			const existing = byId.get(notebook._id);
+			if (existing) {
+				byId.set(notebook._id, { ...existing, ...notebook });
+			} else {
+				byId.set(notebook._id, { ...notebook });
+			}
+		}
+		notebooks.value = Array.from(byId.values());
+	}
+
+	async function fetchOwnedNotebooks(): Promise<Notebook[]> {
+		if (!authStore.userId) return [];
+		const response = await notebookApi.getNotebooksByOwner(authStore.userId);
+		return response.map(normalizeNotebook);
+	}
+
+	async function fetchMemberNotebooks(): Promise<Notebook[]> {
+		if (!authStore.userId) return [];
+		const response = await notebookApi.getNotebooksWithMember(authStore.userId);
+		return response
+			.map(normalizeNotebook)
+			.filter((notebook) => notebook.owner !== authStore.userId);
+	}
 
 	async function createNotebook(
 		notebookData: Omit<NotebookCreate, "owner">,
 	): Promise<ID> {
-		if (!authStore.userId) {
+		if (!authStore.isAuthenticated) {
 			throw new Error("User must be logged in to create notebooks");
 		}
 
@@ -72,36 +105,13 @@ export const useNotebookStore = defineStore("notebook", () => {
 				"🔍 createNotebook - creating notebook with data:",
 				notebookData,
 			);
-			const response = await notebookApi.createNotebook({
-				...notebookData,
-				owner: authStore.userId,
-			});
+			// Backend derives owner from session token
+			const response = await notebookApi.createNotebook(notebookData);
 			console.log("🔍 createNotebook - API response:", response);
 
-			// Refresh user notebooks
-			console.log("🔍 createNotebook - refreshing user notebooks");
-			await loadUserNotebooks();
-
-			// If the API didn't return the new notebook, try to add it manually
-			const newNotebookId = response.notebook as ID;
-			const existingNotebook = notebooks.value.find(
-				(n) => n._id === newNotebookId,
-			);
-			if (!existingNotebook) {
-				console.log(
-					"🔍 createNotebook - API didn't return new notebook, adding manually",
-				);
-				const newNotebook: Notebook = {
-					_id: newNotebookId,
-					owner: authStore.userId,
-					title: notebookData.title,
-					description: notebookData.description,
-					members: [authStore.userId],
-					recipes: [],
-					created: new Date().toISOString(),
-				};
-				notebooks.value = [...notebooks.value, newNotebook];
-			}
+			// Refresh both owned and shared notebooks
+			console.log("🔍 createNotebook - refreshing notebooks");
+			await loadAllUserNotebooks();
 
 			// Force a reactive update by triggering a re-computation
 			console.log(
@@ -112,8 +122,12 @@ export const useNotebookStore = defineStore("notebook", () => {
 				"🔍 createNotebook - userNotebooks after refresh:",
 				userNotebooks.value,
 			);
+			console.log(
+				"🔍 createNotebook - sharedNotebooks after refresh:",
+				sharedNotebooks.value,
+			);
 
-			return response.notebook as ID;
+			return response.notebook;
 		} catch (err) {
 			if (err instanceof ApiError) {
 				error.value = err.message;
@@ -136,48 +150,18 @@ export const useNotebookStore = defineStore("notebook", () => {
 
 		try {
 			console.log(
-				"🔍 loadUserNotebooks - calling API for userId:",
+				"🔍 loadUserNotebooks - fetching owned notebooks for userId:",
 				authStore.userId,
 			);
-			const response = await notebookApi.getNotebooksByOwner(authStore.userId);
-			console.log("🔍 loadUserNotebooks - API response:", response);
-
-			let notebookArray: Notebook[] = [];
-
-			// Handle different response structures
-			if (Array.isArray(response)) {
-				notebookArray = response;
-			} else if (
-				response &&
-				typeof response === "object" &&
-				"notebook" in response
-			) {
-				const notebookData = (response as any).notebook;
-				if (Array.isArray(notebookData)) {
-					notebookArray = notebookData;
-				} else {
-					notebookArray = [notebookData];
-				}
-			} else if (
-				response &&
-				typeof response === "object" &&
-				"data" in response
-			) {
-				const data = (response as any).data;
-				if (Array.isArray(data)) {
-					notebookArray = data;
-				} else {
-					notebookArray = [data];
-				}
-			}
-
+			const owned = await fetchOwnedNotebooks();
+			ownedNotebooks.value = owned;
+			mergeNotebooks();
 			console.log(
-				"🔍 loadUserNotebooks - processed notebookArray:",
-				notebookArray,
+				"🔍 loadUserNotebooks - ownedNotebooks:",
+				ownedNotebooks.value,
 			);
-			notebooks.value = notebookArray;
 			console.log(
-				"🔍 loadUserNotebooks - notebooks.value after update:",
+				"🔍 loadUserNotebooks - notebooks after merge:",
 				notebooks.value,
 			);
 		} catch (err) {
@@ -186,6 +170,42 @@ export const useNotebookStore = defineStore("notebook", () => {
 				error.value = err.message;
 			} else {
 				error.value = "Failed to load notebooks. Please try again.";
+			}
+		} finally {
+			isLoading.value = false;
+		}
+	}
+
+	async function loadSharedNotebooks(): Promise<void> {
+		if (!authStore.userId) {
+			return;
+		}
+
+		isLoading.value = true;
+		error.value = null;
+
+		try {
+			console.log(
+				"🔍 loadSharedNotebooks - fetching member notebooks for userId:",
+				authStore.userId,
+			);
+			const shared = await fetchMemberNotebooks();
+			memberNotebooks.value = shared;
+			mergeNotebooks();
+			console.log(
+				"🔍 loadSharedNotebooks - memberNotebooks:",
+				memberNotebooks.value,
+			);
+			console.log(
+				"🔍 loadSharedNotebooks - notebooks after merge:",
+				notebooks.value,
+			);
+		} catch (err) {
+			console.error("🔍 loadSharedNotebooks - error:", err);
+			if (err instanceof ApiError) {
+				error.value = err.message;
+			} else {
+				error.value = "Failed to load shared notebooks. Please try again.";
 			}
 		} finally {
 			isLoading.value = false;
@@ -201,61 +221,24 @@ export const useNotebookStore = defineStore("notebook", () => {
 		error.value = null;
 
 		try {
-			// Load owned notebooks
-			await loadUserNotebooks();
-
-			// Load shared notebooks where user is a member
+			const [owned, shared] = await Promise.all([
+				fetchOwnedNotebooks(),
+				fetchMemberNotebooks(),
+			]);
+			ownedNotebooks.value = owned;
+			memberNotebooks.value = shared;
+			mergeNotebooks();
 			console.log(
-				"🔍 loadAllUserNotebooks - loading shared notebooks for userId:",
-				authStore.userId,
-			);
-			const sharedNotebooks = await notebookApi.getNotebooksByMember(
-				authStore.userId,
-			);
-			console.log(
-				"🔍 loadAllUserNotebooks - shared notebooks response:",
-				sharedNotebooks,
+				"🔍 loadAllUserNotebooks - ownedNotebooks:",
+				ownedNotebooks.value,
 			);
 			console.log(
-				"🔍 loadAllUserNotebooks - shared notebooks count:",
-				sharedNotebooks.length,
-			);
-
-			// Add shared notebooks to the notebooks array if not already present
-			let addedCount = 0;
-			sharedNotebooks.forEach((sharedNotebook) => {
-				const existingNotebook = notebooks.value.find(
-					(n) => n._id === sharedNotebook._id,
-				);
-				if (!existingNotebook) {
-					notebooks.value.push(sharedNotebook);
-					addedCount++;
-					console.log(
-						"🔍 loadAllUserNotebooks - added shared notebook:",
-						sharedNotebook.title,
-						sharedNotebook._id,
-					);
-				} else {
-					console.log(
-						"🔍 loadAllUserNotebooks - notebook already exists:",
-						sharedNotebook.title,
-						sharedNotebook._id,
-					);
-				}
-			});
-
-			console.log(
-				"🔍 loadAllUserNotebooks - added",
-				addedCount,
-				"shared notebooks",
+				"🔍 loadAllUserNotebooks - memberNotebooks:",
+				memberNotebooks.value,
 			);
 			console.log(
-				"🔍 loadAllUserNotebooks - final notebooks array:",
+				"🔍 loadAllUserNotebooks - notebooks after merge:",
 				notebooks.value,
-			);
-			console.log(
-				"🔍 loadAllUserNotebooks - final notebooks count:",
-				notebooks.value.length,
 			);
 		} catch (err) {
 			console.error("🔍 loadAllUserNotebooks - error:", err);
@@ -274,13 +257,20 @@ export const useNotebookStore = defineStore("notebook", () => {
 		error.value = null;
 
 		try {
+			console.log("🔍 loadNotebookById - loading notebook:", notebookId);
 			const notebook = await notebookApi.getNotebookById(notebookId);
+			console.log("🔍 loadNotebookById - received notebook:", notebook);
+			console.log("🔍 loadNotebookById - notebook._id:", notebook._id);
 
 			// Ensure arrays are properly initialized
 			if (!notebook.members) notebook.members = [];
 			if (!notebook.recipes) notebook.recipes = [];
 
 			currentNotebook.value = notebook;
+			console.log(
+				"🔍 loadNotebookById - currentNotebook set to:",
+				currentNotebook.value,
+			);
 		} catch (err) {
 			if (err instanceof ApiError) {
 				error.value = err.message;
@@ -293,11 +283,18 @@ export const useNotebookStore = defineStore("notebook", () => {
 		}
 	}
 
-	async function inviteMember(data: NotebookInvite): Promise<void> {
+	async function inviteMember(
+		data: Omit<NotebookInvite, "owner">,
+	): Promise<void> {
+		if (!authStore.isAuthenticated) {
+			throw new Error("User must be logged in to invite members");
+		}
+
 		isLoading.value = true;
 		error.value = null;
 
 		try {
+			// Backend derives owner from session token
 			await notebookApi.inviteMember(data);
 			// Refresh the notebook
 			if (currentNotebook.value) {
@@ -316,7 +313,7 @@ export const useNotebookStore = defineStore("notebook", () => {
 	}
 
 	async function removeMember(notebookId: ID, memberId: ID): Promise<void> {
-		if (!authStore.userId) {
+		if (!authStore.isAuthenticated) {
 			throw new Error("User must be logged in to remove members");
 		}
 
@@ -324,7 +321,8 @@ export const useNotebookStore = defineStore("notebook", () => {
 		error.value = null;
 
 		try {
-			await notebookApi.removeMember(authStore.userId, notebookId, memberId);
+			// Backend derives owner from session token
+			await notebookApi.removeMember(notebookId, memberId);
 			// Refresh the notebook
 			if (currentNotebook.value) {
 				await loadNotebookById(currentNotebook.value._id);
@@ -341,11 +339,18 @@ export const useNotebookStore = defineStore("notebook", () => {
 		}
 	}
 
-	async function shareRecipe(data: NotebookShare): Promise<void> {
+	async function shareRecipe(
+		data: Omit<NotebookShare, "sharer">,
+	): Promise<void> {
+		if (!authStore.isAuthenticated) {
+			throw new Error("User must be logged in to share recipes");
+		}
+
 		isLoading.value = true;
 		error.value = null;
 
 		try {
+			// Backend derives sharer from session token
 			await notebookApi.shareRecipe(data);
 			// Refresh the notebook
 			if (currentNotebook.value) {
@@ -364,7 +369,7 @@ export const useNotebookStore = defineStore("notebook", () => {
 	}
 
 	async function unshareRecipe(recipeId: ID, notebookId: ID): Promise<void> {
-		if (!authStore.userId) {
+		if (!authStore.isAuthenticated) {
 			throw new Error("User must be logged in to unshare recipes");
 		}
 
@@ -372,7 +377,8 @@ export const useNotebookStore = defineStore("notebook", () => {
 		error.value = null;
 
 		try {
-			await notebookApi.unshareRecipe(authStore.userId, recipeId, notebookId);
+			// Backend derives requester from session token
+			await notebookApi.unshareRecipe(recipeId, notebookId);
 			// Refresh the notebook
 			if (currentNotebook.value) {
 				await loadNotebookById(currentNotebook.value._id);
@@ -390,7 +396,7 @@ export const useNotebookStore = defineStore("notebook", () => {
 	}
 
 	async function deleteNotebook(notebookId: ID): Promise<void> {
-		if (!authStore.userId) {
+		if (!authStore.isAuthenticated) {
 			throw new Error("User must be logged in to delete notebooks");
 		}
 
@@ -398,12 +404,17 @@ export const useNotebookStore = defineStore("notebook", () => {
 		error.value = null;
 
 		try {
-			await notebookApi.deleteNotebook(authStore.userId, notebookId);
+			// Backend derives owner from session token
+			await notebookApi.deleteNotebook(notebookId);
 
 			// Remove from local state
-			notebooks.value = notebooks.value.filter(
+			ownedNotebooks.value = ownedNotebooks.value.filter(
 				(notebook) => notebook._id !== notebookId,
 			);
+			memberNotebooks.value = memberNotebooks.value.filter(
+				(notebook) => notebook._id !== notebookId,
+			);
+			mergeNotebooks();
 			if (currentNotebook.value?._id === notebookId) {
 				currentNotebook.value = null;
 			}
@@ -464,6 +475,7 @@ export const useNotebookStore = defineStore("notebook", () => {
 		// Actions
 		createNotebook,
 		loadUserNotebooks,
+		loadSharedNotebooks,
 		loadAllUserNotebooks,
 		loadNotebookById,
 		inviteMember,
