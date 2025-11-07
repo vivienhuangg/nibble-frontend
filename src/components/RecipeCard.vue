@@ -30,9 +30,6 @@
         <ChefHat :size="16" :stroke-width="2" class="stat-icon" />
         <span>{{ stepCount }} steps</span>
       </div>
-      <div class="stat" v-if="forkCount && forkCount > 0">
-        <GitFork :size="16" :stroke-width="2" class="stat-icon" />
-      </div>
     </div>
 
     <div v-if="tags.length > 0" class="recipe-tags">
